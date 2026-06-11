@@ -1,0 +1,84 @@
+import { truncate } from './util.js';
+
+/**
+ * --handoff: an agent-ready context pack, printed to stdout (and gated by the
+ * same redaction pipeline as every other export).
+ *
+ * Not a "replay" — a briefing: goal, where things stand, accepted decisions,
+ * known dead ends, and standing constraints, so the next agent (or model)
+ * starts with the lineage instead of an empty context.
+ */
+export function renderHandoff(tree, opts = {}) {
+  const { projectName } = opts;
+  const { nodes, stats } = tree;
+  const lines = [];
+
+  const root = nodes.find((n) => n.kind === 'root') || nodes[0];
+  const accepted = nodes.filter((n) => n.status !== 'abandoned');
+  const lastCheckpoint = [...accepted].reverse().find((n) => n.kind === 'checkpoint');
+  const lastAccepted = accepted.at(-1);
+
+  lines.push(`# Handoff brief — ${projectName}`);
+  lines.push('');
+  lines.push(
+    `You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (${stats.promptCount} prompts, ${stats.sessionCount} sessions). Read it fully before acting.`
+  );
+  lines.push('');
+
+  if (root) {
+    lines.push('## Original goal');
+    lines.push('');
+    lines.push(root.text.trim());
+    lines.push('');
+  }
+
+  lines.push('## Where things stand');
+  lines.push('');
+  if (lastCheckpoint) {
+    lines.push(`Last checkpoint: ${lastCheckpoint.text.trim()}`);
+  }
+  if (lastAccepted && lastAccepted !== lastCheckpoint) {
+    lines.push('');
+    lines.push(`Most recent accepted direction: ${lastAccepted.text.trim()}`);
+  }
+  lines.push('');
+
+  const decisions = accepted.filter((n) => n.kind === 'direction' || n.kind === 'scope-change');
+  if (decisions.length) {
+    lines.push('## Accepted decisions (in order)');
+    lines.push('');
+    decisions.forEach((n, i) => lines.push(`${i + 1}. ${truncate(n.text.replace(/\s+/g, ' '), 360)}`));
+    lines.push('');
+  }
+
+  const corrections = accepted.filter((n) => n.kind === 'correction');
+  if (corrections.length) {
+    lines.push('## Constraints learned the hard way');
+    lines.push('');
+    lines.push('These corrections were issued during the build — do not repeat the mistakes they fixed:');
+    lines.push('');
+    corrections.forEach((n) => lines.push(`- ${truncate(n.text.replace(/\s+/g, ' '), 300)}`));
+    lines.push('');
+  }
+
+  const abandoned = nodes.filter(
+    (n) => n.status === 'abandoned' && (!n.parent || n.parent.status !== 'abandoned')
+  );
+  if (abandoned.length) {
+    lines.push('## Known dead ends');
+    lines.push('');
+    lines.push('These approaches were tried and abandoned — avoid unless told otherwise:');
+    lines.push('');
+    abandoned.forEach((n) => lines.push(`- ${truncate(n.text.replace(/\s+/g, ' '), 300)}`));
+    lines.push('');
+  }
+
+  lines.push('## First task');
+  lines.push('');
+  lines.push(
+    'Confirm you understand the goal, the accepted decisions, and the constraints above, then ask the user what to tackle next (or continue the most recent accepted direction if instructed to proceed autonomously).'
+  );
+  lines.push('');
+
+  return lines.join('\n');
+}

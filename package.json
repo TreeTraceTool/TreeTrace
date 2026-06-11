@@ -1,0 +1,32 @@
+{
+  "name": "treetrace",
+  "version": "0.1.0",
+  "description": "Turn AI coding sessions into a clean, shareable PROMPT_TREE.md — the prompt lineage that built your project.",
+  "keywords": [
+    "claude-code",
+    "prompt",
+    "provenance",
+    "prompt-tree",
+    "ai",
+    "transcript",
+    "lineage",
+    "agent"
+  ],
+  "license": "MIT",
+  "author": "Zion Boggan",
+  "type": "module",
+  "bin": {
+    "treetrace": "bin/treetrace.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "SCHEMA.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}
