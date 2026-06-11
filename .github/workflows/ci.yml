@@ -1,0 +1,23 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --test test/
+      - name: CLI smoke test (fixture, fail-closed redaction)
+        run: |
+          node bin/treetrace.js --file test/fixtures/synthetic-session.jsonl --dir "$RUNNER_TEMP" --redact-auto --quiet
+          grep -q "REDACTED" "$RUNNER_TEMP/PROMPT_TREE.md"
+          ! grep -q "sk-ant-" "$RUNNER_TEMP/PROMPT_TREE.md"

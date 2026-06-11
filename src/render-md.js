@@ -150,8 +150,9 @@ function emitNode(node, depth, lines, { titlesOnly }) {
   const title = dead ? `~~${node.title}~~ ✗` : node.kind === 'root' ? `**${node.title}**` : node.title;
   const session = node.sessionBoundary ? ` ${dim(`(new session${node.ts ? `, ${formatDay(node.ts)}` : ''})`)}` : '';
   const nudges = node.nudges > 1 ? ` ${dim(`(+${node.nudges} nudges)`)}` : '';
+  const reruns = node.reruns ? ` ${dim(`(re-issued ×${node.reruns + 1})`)}` : '';
 
-  lines.push(`${indent}- \`${icon}\` ${title}${session}${nudges}`);
+  lines.push(`${indent}- \`${icon}\` ${title}${session}${nudges}${reruns}`);
 
   if (!titlesOnly && node.text.replace(/\s+/g, ' ').trim().length > node.title.replace(/\.\.\.$/, '').length + 12) {
     lines.push(`${indent}  <details><summary>full prompt</summary>`);

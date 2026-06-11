@@ -57,6 +57,7 @@ export function renderJson(tree, opts = {}) {
       text: n.text,
       status: n.status,
       nudges: n.nudges || 0,
+      reruns: n.reruns || 0,
       session: n.sessionId,
       timestamp: n.ts,
       // source linkage for audit: the original record uuid inside the local

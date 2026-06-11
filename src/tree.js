@@ -12,10 +12,15 @@ export function buildTree(sessions, nodes) {
   for (const node of nodes) if (node.uuid) byUuid.set(node.uuid, node);
 
   // Per-session main-path sets (uuids of records that "made it" to the end).
+  // The last `last-prompt` record's leafUuid is the authoritative live-branch
+  // tip; the last addressable record is the fallback.
   const mainPaths = new Map();
   for (const session of sessions) {
     const main = new Set();
-    let cur = session.leafUuid;
+    let cur =
+      (session.activeLeafUuid && session.index.has(session.activeLeafUuid)
+        ? session.activeLeafUuid
+        : session.leafUuid) || null;
     let guard = 0;
     while (cur && guard++ < 1_000_000) {
       main.add(cur);

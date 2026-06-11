@@ -1,0 +1,58 @@
+name: 'treetrace'
+description: 'Generate or refresh PROMPT_TREE.md — the prompt lineage of this repository — from committed treetrace lineage data.'
+author: 'Zion Boggan'
+branding:
+  icon: 'git-branch'
+  color: 'green'
+
+inputs:
+  source:
+    description: >
+      Path to a transcript file (.jsonl or plain text) committed or produced in
+      CI. Session logs live on dev machines, not in CI — typical usage is
+      regenerating PROMPT_TREE.md from a committed .treetrace/tree.json or an
+      uploaded transcript artifact.
+    required: false
+    default: ''
+  comment-pr:
+    description: 'Post the tree summary as a PR comment (requires GITHUB_TOKEN).'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate prompt tree
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -n "${{ inputs.source }}" ]; then
+          npx --yes treetrace --file "${{ inputs.source }}" --redact-auto --quiet
+        elif [ -f .treetrace/tree.json ]; then
+          echo "::notice::Using committed .treetrace/tree.json"
+          # re-render markdown from committed lineage (no transcripts in CI)
+          node -e "
+            const { readFileSync, writeFileSync } = require('fs');
+            const data = JSON.parse(readFileSync('.treetrace/tree.json','utf8'));
+            console.log('lineage present:', data.nodes.length, 'nodes — PROMPT_TREE.md should be committed alongside it');
+          "
+        else
+          echo "::warning::No source transcript or .treetrace/tree.json found — nothing to do."
+        fi
+    - name: Comment on PR
+      if: ${{ inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        if [ -f PROMPT_TREE.md ]; then
+          {
+            echo "### 🌳 Prompt tree"
+            echo ""
+            head -c 4000 PROMPT_TREE.md
+            echo ""
+            echo "_Full lineage: PROMPT_TREE.md_"
+          } > /tmp/tt-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/tt-comment.md
+        fi

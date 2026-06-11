@@ -36,8 +36,16 @@ const QUESTION_ONLY =
   /^(what|how|why|where|when|which|who|is|are|can|could|should|would|will|do|does|did)\b[^]*\?\s*$/i;
 
 // Short acknowledgements that nudge the agent along but carry no direction.
+// NB: bare numerals / "option B" are NOT here — they select from an offered
+// menu and steer the project (corpus ground truth), so they become nodes.
 const CONTINUATION_RE =
-  /^(y|yes|yep|yeah|ok|okay|k|sure|continue|cont|go|go ahead|do it|proceed|next|sounds good|looks good|lgtm|perfect|nice|good|great|approved?|yes please|please do|carry on|keep going|resume|finish|all good|that works|works|👍|do that|option \w|\d)[.! ]*$/i;
+  /^(y|yes|yep|yeah|ok|okay|k|sure|continue|cont|go|go ahead|do it|proceed|next|sounds good|looks good|lgtm|perfect|nice|good|great|approved?|yes please|please do|carry on|keep going|resume|finish|all good|that works|works|👍|do that)[.! ]*$/i;
+
+// Menu selections: tiny text, real steering — titled specially.
+const SELECTION_RE = /^(?:option\s+)?([0-9]{1,2}|[a-d])[.)! ]*$/i;
+
+// Explicit self-described throwaways ("Test message. Ignore this.")
+const IGNORE_RE = /\bignore this\b/i;
 
 const MAX_NUDGE_WORDS = 4;
 
@@ -64,6 +72,15 @@ export function classifyPrompts(sessions) {
         continue;
       }
 
+      // Re-armed recurring prompts (/loop restarts, repeated dispatches with
+      // small wording drift) collapse into one node with a re-run counter.
+      if (prevNode && isRerunOf(prevNode.text, text)) {
+        prevNode.reruns = (prevNode.reruns || 0) + 1;
+        prevNode.text = text; // latest wording wins
+        prevNode.title = makeTitle(text);
+        continue;
+      }
+
       // Fold pure nudges into the previous node instead of creating noise nodes.
       if (
         prevNode &&
@@ -74,7 +91,24 @@ export function classifyPrompts(sessions) {
         continue;
       }
 
-      const node = {
+      // Self-described throwaways never become lineage.
+      if (words.length <= 6 && IGNORE_RE.test(text)) continue;
+
+      const selection = rootAssigned && SELECTION_RE.exec(text);
+      const node = selection ? {
+        id: null,
+        uuid: prompt.uuid,
+        parentUuid: prompt.parentUuid,
+        sessionId: session.sessionId,
+        ts: prompt.ts,
+        text,
+        title: `Chose option ${selection[1].toUpperCase()} from the proposed menu`,
+        kind: KIND.DIRECTION,
+        status: 'accepted',
+        nudges: 0,
+        afterInterruption: prompt.afterInterruption,
+        chars: text.length,
+      } : {
         id: null, // assigned by tree builder
         uuid: prompt.uuid,
         parentUuid: prompt.parentUuid,
@@ -106,6 +140,22 @@ function isDupOf(a, b) {
   if (short.length < 24) return false; // too short to call a prefix-dup safely
   // tolerate a few trailing chars of divergence (cut-off mid-word)
   return long.startsWith(short.slice(0, short.length - 4));
+}
+
+// Same recurring instruction re-issued with wording drift: identical opening
+// (command name / first words) plus high common-prefix overlap.
+function isRerunOf(a, b) {
+  const na = a.replace(/\s+/g, ' ').trim();
+  const nb = b.replace(/\s+/g, ' ').trim();
+  if (na.length < 40 || nb.length < 40) return false;
+  if (na.slice(0, 24) !== nb.slice(0, 24)) return false;
+  // Command re-arms (/loop, /dispatch …): same command + same opening counts
+  // as a re-issue even when the long arg body drifts.
+  if (na.startsWith('/') && na.slice(0, 32) === nb.slice(0, 32)) return true;
+  const limit = Math.min(na.length, nb.length);
+  let common = 0;
+  while (common < limit && na[common] === nb[common]) common++;
+  return common / limit >= 0.5;
 }
 
 function classifyOne(text, prompt, rootAssigned) {
