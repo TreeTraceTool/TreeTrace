@@ -31,6 +31,7 @@ export async function parseSessionFile(path, sessionMeta = {}) {
     isContinuation: false,
     _usageByMsgId: new Map(),
     _pendingInterruption: false,
+    _currentPrompt: null,
   };
 
   const stream = createReadStream(path, { encoding: 'utf8' });
@@ -165,7 +166,7 @@ function ingestUser(session, rec) {
   if (!trimmed && hasImage) trimmed = '[image-only prompt: screenshot/annotated feedback]';
   if (!trimmed) return;
 
-  session.prompts.push({
+  const prompt = {
     uuid: rec.uuid || null,
     parentUuid: rec.parentUuid || null,
     ts: rec.timestamp || null,
@@ -173,7 +174,11 @@ function ingestUser(session, rec) {
     hasImage,
     hadToolResultContext: hasToolResult,
     afterInterruption: Boolean(session._pendingInterruption),
-  });
+    actions: [],
+    thinking: 0,
+  };
+  session.prompts.push(prompt);
+  session._currentPrompt = prompt;
   session._pendingInterruption = false;
 }
 
@@ -191,13 +196,25 @@ function ingestAssistant(session, rec) {
     session._usageByMsgId.set(msg.id || rec.uuid, msg.usage);
   }
 
+  const current = session._currentPrompt;
   const content = Array.isArray(msg.content) ? msg.content : [];
   for (const block of content) {
-    if (block && block.type === 'tool_use') {
+    if (!block) continue;
+    if (block.type === 'tool_use') {
       session.stats.toolUses++;
       const input = block.input || {};
       const file = input.file_path || input.notebook_path || null;
       if (typeof file === 'string') session.stats.filesTouched.add(file);
+      if (current) {
+        current.actions.push({
+          tool: block.name || null,
+          file: typeof file === 'string' ? file : null,
+          command: block.name === 'Bash' && typeof input.command === 'string' ? input.command : null,
+          model: synthetic ? null : msg.model || null,
+        });
+      }
+    } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+      if (current) current.thinking++;
     }
   }
 }
@@ -312,7 +329,7 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
     gitBranch: null,
     firstTs: null,
     lastTs: null,
-    prompts: prompts.map((p) => ({ ...p, text: p.text.trim() })),
+    prompts: prompts.map((p) => ({ ...p, text: p.text.trim(), actions: [], thinking: 0 })),
     index: new Map(),
     leafUuid: null,
     activeLeafUuid: null,

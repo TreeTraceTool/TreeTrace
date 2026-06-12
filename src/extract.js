@@ -51,6 +51,7 @@ export function classifyPrompts(sessions) {
           prevNode.kind = prevNode.kind === KIND.ROOT ? KIND.ROOT : classifyOne(text, prompt, true);
           prevNode.chars = text.length;
         }
+        mergeActions(prevNode, prompt);
         continue;
       }
 
@@ -58,6 +59,7 @@ export function classifyPrompts(sessions) {
         prevNode.reruns = (prevNode.reruns || 0) + 1;
         prevNode.text = text;
         prevNode.title = makeTitle(text);
+        mergeActions(prevNode, prompt);
         continue;
       }
 
@@ -67,6 +69,7 @@ export function classifyPrompts(sessions) {
         CONTINUATION_RE.test(text)
       ) {
         prevNode.nudges++;
+        mergeActions(prevNode, prompt);
         continue;
       }
 
@@ -85,6 +88,8 @@ export function classifyPrompts(sessions) {
         status: 'accepted',
         nudges: 0,
         afterInterruption: prompt.afterInterruption,
+        actions: prompt.actions || [],
+        thinking: prompt.thinking || 0,
         chars: text.length,
       } : {
         id: null,
@@ -98,6 +103,8 @@ export function classifyPrompts(sessions) {
         status: 'accepted',
         nudges: 0,
         afterInterruption: prompt.afterInterruption,
+        actions: prompt.actions || [],
+        thinking: prompt.thinking || 0,
         chars: text.length,
       };
       if (node.kind === KIND.ROOT) rootAssigned = true;
@@ -145,6 +152,12 @@ export function makeTitle(text) {
   const firstLine = text.split(/\r?\n/).find((l) => l.trim()) || text;
   const sentence = firstLine.split(/(?<=[.!?])\s+/)[0] || firstLine;
   return truncate(sentence, 96);
+}
+
+function mergeActions(node, prompt) {
+  node.actions = node.actions || [];
+  if (prompt.actions && prompt.actions.length) node.actions.push(...prompt.actions);
+  if (prompt.thinking) node.thinking = (node.thinking || 0) + prompt.thinking;
 }
 
 export { KIND };
