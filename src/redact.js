@@ -1,22 +1,8 @@
 import { createInterface } from 'node:readline/promises';
 import { sha256, shannonEntropy, truncate, c } from './util.js';
 
-/**
- * Secret/PII scanner + export gate.
- *
- * Philosophy: NOTHING leaves un-reviewed. In a TTY the user resolves every
- * unique hit (redact / keep / edit). Outside a TTY every hit is redacted
- * automatically — the tool fails closed, never open. After rendering, the
- * final artifact is shadow-scanned again; an unresolved high/medium hit at
- * that stage aborts the write.
- *
- * Rules are curated for precision (gitleaks-style provider formats) plus a
- * high-entropy fallback. False negatives are existential for a privacy tool,
- * false positives merely cost a keystroke — when in doubt, flag.
- */
-
 export const RULES = [
-  // ---- high: unambiguous secret formats ----
+
   { id: 'private-key-block', severity: 'high', re: /-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY( BLOCK)?-----|$)/g },
   { id: 'aws-access-key', severity: 'high', re: /\b(AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { id: 'github-token', severity: 'high', re: /\b(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}\b/g },
@@ -35,13 +21,11 @@ export const RULES = [
   { id: 'discord-webhook', severity: 'high', re: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/g },
   { id: 'jwt', severity: 'high', re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g },
 
-  // ---- medium: context-dependent assignments ----
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
   { id: 'url-basic-auth', severity: 'medium', re: /[a-z][a-z0-9+.-]*:\/\/[^/\s:@'"`]{2,}:[^/\s@'"`]{2,}@[^\s'"`]+/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
   { id: 'secret-assignment', severity: 'medium', re: /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*(?!(?:['"]?\s*)?(?:\$\{|<|%|\*{3}|\.{3}|REDACTED|xxx+|placeholder|changeme|example|your[-_]))(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s'"`,;]{8,})/gi },
 
-  // ---- soft: PII and context the user may want to keep ----
   { id: 'email', severity: 'soft', re: /\b[A-Za-z0-9._%+-]+@(?!(?:users\.noreply\.github\.com|example\.(?:com|org)))[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
   { id: 'ipv4', severity: 'soft', re: /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?!\.\d)/g },
   { id: 'home-dir-username', severity: 'soft', re: /(?:\/(?:home|Users)\/|C:\\Users\\)([A-Za-z][A-Za-z0-9._-]{2,30})\b/g },
@@ -85,8 +69,6 @@ export function scanText(text) {
     }
   }
 
-  // High-entropy fallback: long mixed-charset tokens that no provider rule
-  // caught. Pure hex (git SHAs, digests) and uuids excluded — too noisy.
   const seenSpans = findings.map((f) => [f.index, f.index + f.match.length]);
   ENTROPY_CANDIDATE_RE.lastIndex = 0;
   let m;
@@ -139,13 +121,9 @@ export function maskFor(finding) {
   return `[REDACTED:${finding.ruleId}]`;
 }
 
-/**
- * Resolve findings into decisions, keyed by sha256(match).
- * decision = { action: 'redact'|'keep', replacement, ruleId }
- */
 export async function resolveFindings(findings, priorDecisions, { interactive, autoRedact }) {
   const decisions = { ...priorDecisions };
-  const unique = new Map(); // hash -> { finding, count }
+  const unique = new Map();
   for (const f of findings) {
     const h = sha256(f.match);
     if (!unique.has(h)) unique.set(h, { finding: f, count: 0 });
@@ -164,7 +142,7 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   process.stderr.write(
-    `\n${c.bold(`${unresolved.length} potential secret${unresolved.length === 1 ? '' : 's'} found`)} — nothing is exported until each is resolved.\n\n`
+    `\n${c.bold(`${unresolved.length} potential secret${unresolved.length === 1 ? '' : 's'} found`)}. Nothing is exported until each is resolved.\n\n`
   );
   let i = 0;
   for (const [h, { finding, count }] of unresolved) {
@@ -175,6 +153,7 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
       : c.gray(finding.severity);
     process.stderr.write(
       `${c.dim(`[${i}/${unresolved.length}]`)} ${sev} ${c.bold(finding.ruleId)} ×${count}\n    ${c.cyan(truncate(finding.match, 72))}\n`
+
     );
     let answer;
     for (;;) {
@@ -196,13 +175,8 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
   return { decisions, asked: unresolved.length };
 }
 
-/**
- * Apply redaction decisions to text. Decisions are keyed by sha256(match) and
- * deliberately never store the secret itself (the persisted decision file must
- * be safe to commit); the raw strings come from this run's findings.
- */
 export function applyDecisions(text, findings, decisions) {
-  const toRedact = new Map(); // original -> replacement
+  const toRedact = new Map();
   for (const f of findings) {
     const d = decisions[sha256(f.match)];
     if (d && d.action === 'redact') {
@@ -210,7 +184,7 @@ export function applyDecisions(text, findings, decisions) {
     }
   }
   let out = text;
-  // Longest matches first so substrings of larger secrets don't pre-empt them.
+
   for (const [original, replacement] of [...toRedact.entries()].sort(
     (a, b) => b[0].length - a[0].length
   )) {
@@ -219,10 +193,6 @@ export function applyDecisions(text, findings, decisions) {
   return out;
 }
 
-/**
- * Shadow scan: run after rendering. Any high/medium finding that is not an
- * explicit "keep" means the gate failed — abort, never write.
- */
 export function shadowScan(renderedText, decisions) {
   const leaks = [];
   for (const f of scanText(renderedText)) {

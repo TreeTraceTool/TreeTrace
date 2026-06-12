@@ -1,14 +1,6 @@
 import { truncate } from './util.js';
 import { analyzeTree } from './analyze.js';
 
-/**
- * --handoff: an agent-ready context pack, printed to stdout (and gated by the
- * same redaction pipeline as every other export).
- *
- * Not a "replay" — a briefing: goal, where things stand, accepted decisions,
- * known dead ends, and standing constraints, so the next agent (or model)
- * starts with the lineage instead of an empty context.
- */
 export function renderHandoff(tree, opts = {}) {
   const { projectName } = opts;
   const { nodes, stats } = tree;
@@ -20,7 +12,7 @@ export function renderHandoff(tree, opts = {}) {
   const lastCheckpoint = [...accepted].reverse().find((n) => n.kind === 'checkpoint');
   const lastAccepted = accepted.at(-1);
 
-  lines.push(`# Handoff brief — ${projectName}`);
+  lines.push(`# Handoff brief: ${projectName}`);
   lines.push('');
   lines.push(
     `You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (${stats.promptCount} prompts, ${stats.sessionCount} sessions). Read it fully before acting.`
@@ -57,7 +49,7 @@ export function renderHandoff(tree, opts = {}) {
   if (corrections.length) {
     lines.push('## Constraints learned the hard way');
     lines.push('');
-    lines.push('These corrections were issued during the build — do not repeat the mistakes they fixed:');
+    lines.push('These corrections were issued during the build. Do not repeat the mistakes they fixed:');
     lines.push('');
     corrections.forEach((n) => lines.push(`- ${truncate(n.text.replace(/\s+/g, ' '), 300)}`));
     lines.push('');
@@ -69,7 +61,7 @@ export function renderHandoff(tree, opts = {}) {
   if (abandoned.length) {
     lines.push('## Known dead ends');
     lines.push('');
-    lines.push('These approaches were tried and abandoned — avoid unless told otherwise:');
+    lines.push('These approaches were tried and abandoned. Avoid unless told otherwise:');
     lines.push('');
     abandoned.forEach((n) => lines.push(`- ${truncate(n.text.replace(/\s+/g, ' '), 300)}`));
     lines.push('');

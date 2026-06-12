@@ -59,7 +59,6 @@ export async function main(argv) {
   const projectName = detectProjectName(projectDir);
   const log = opts.quiet ? () => {} : (msg) => process.stderr.write(`${msg}\n`);
 
-  // ---- gather sessions ----
   let sessions = [];
   if (opts.stdin) {
     const text = readFileSync(0, 'utf8');
@@ -99,14 +98,12 @@ export async function main(argv) {
     sessions = sessions.filter((s) => !s.lastTs || s.lastTs >= opts.since);
   }
 
-  // ---- extract + build ----
   const nodes = classifyPrompts(sessions);
   if (!nodes.length) {
-    throw new Error('no human prompts found in these sessions — nothing to trace.');
+    throw new Error('no human prompts found in these sessions, nothing to trace.');
   }
   const tree = buildTree(sessions, nodes);
 
-  // ---- redaction gate ----
   const ttDir = join(projectDir, '.treetrace');
   const decisionsPath = join(ttDir, 'redactions.json');
   const priorDecisions = existsSync(decisionsPath)
@@ -136,7 +133,6 @@ export async function main(argv) {
   }
   analyzeTree(tree);
 
-  // ---- render ----
   const generatedAt = new Date().toISOString();
   const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt };
 
@@ -181,13 +177,12 @@ export async function main(argv) {
   mkdirSync(ttDir, { recursive: true });
   writeFileSync(join(ttDir, 'tree.json'), jsonText);
   for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
-  // decisions file stores only hashes + actions - safe to keep, never secrets
+
   writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
 
   if (opts.json) process.stdout.write(jsonText + '\n');
   if (opts.report) process.stdout.write(report);
 
-  // ---- terminal summary ----
   log('');
   log(summaryLine(tree.stats, projectName));
   log(renderTerminalSummary(tree, renderOpts).trimEnd());
@@ -240,7 +235,7 @@ function assertClean(rendered, decisions, label) {
   if (leaks.length) {
     throw new Error(
       `shadow scan found ${plural(leaks.length, 'unresolved secret')} in the rendered ${label} ` +
-        `(${[...new Set(leaks.map((l) => l.ruleId))].join(', ')}) — refusing to write. ` +
+        `(${[...new Set(leaks.map((l) => l.ruleId))].join(', ')}). Refusing to write. ` +
         `This is a bug worth reporting; as a workaround run interactively to resolve hits.`
     );
   }
@@ -255,7 +250,7 @@ function summaryLine(stats, projectName) {
   if (stats.corrections) bits.push(`${stats.corrections} ${c.yellow('↩')} corrections`);
   if (stats.abandonedBranches) bits.push(`${stats.abandonedBranches} ${c.red('✗')} abandoned`);
   if (stats.toolUses) bits.push(`${stats.toolUses.toLocaleString()} tool calls`);
-  return `${c.cyan('🌳')} ${c.bold(projectName)} — ${bits.join(' · ')}`;
+  return `${c.cyan('🌳')} ${c.bold(projectName)} · ${bits.join(' · ')}`;
 }
 
 const PREVIEW_LIMIT = 30;
@@ -276,7 +271,7 @@ function previewTree(tree, log) {
     log(`${'  '.repeat(depth + 1)}${icon} ${title}`);
     return true;
   };
-  // flat for linear chains, indent only at forks (matches the md renderer)
+
   const walk = (node, depth) => {
     let cur = node;
     for (;;) {
@@ -303,7 +298,7 @@ function detectProjectName(dir) {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
     if (pkg.name) return pkg.name;
   } catch {
-    /* no package.json — fall through */
+
   }
   return basename(dir);
 }

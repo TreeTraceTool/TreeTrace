@@ -1,23 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
-/**
- * Streaming parser for Claude Code session JSONL files.
- *
- * Built against a 579-file / ~195k-line corpus census (format versions
- * 2.1.133-2.1.173). Key realities encoded here:
- *  - Records form a DAG per file; chains pass THROUGH system/attachment
- *    nodes, so all addressable node types must be indexed.
- *  - One API assistant message = N jsonl records sharing message.id, with
- *    usage repeated on every split — merge or token stats inflate 2-4×.
- *  - Compaction restarts the chain (parentUuid:null) but provides
- *    logicalParentUuid to stitch through.
- *  - userType is 'external' on every record including agent-authored ones —
- *    never a human discriminator. Sidechains live in separate files.
- *  - The last `last-prompt` record's leafUuid is the live branch tip.
- *  - Session files reach 200MB+ (multi-MB base64 lines): stream, never buffer.
- */
-
 const DAG_TYPES = new Set(['user', 'assistant', 'system', 'attachment']);
 
 export async function parseSessionFile(path, sessionMeta = {}) {
@@ -31,10 +14,10 @@ export async function parseSessionFile(path, sessionMeta = {}) {
     gitBranch: null,
     firstTs: null,
     lastTs: null,
-    prompts: [], // candidate human prompts (full text retained)
-    index: new Map(), // uuid -> { parentUuid, type, ts } for all DAG records
-    leafUuid: null, // last addressable record seen (fallback branch tip)
-    activeLeafUuid: null, // from last `last-prompt` record (authoritative)
+    prompts: [],
+    index: new Map(),
+    leafUuid: null,
+    activeLeafUuid: null,
     stats: {
       userLines: 0,
       assistantLines: 0,
@@ -46,7 +29,7 @@ export async function parseSessionFile(path, sessionMeta = {}) {
       interruptions: 0,
     },
     isContinuation: false,
-    _usageByMsgId: new Map(), // assistant split merge: last record's usage wins
+    _usageByMsgId: new Map(),
     _pendingInterruption: false,
   };
 
@@ -54,22 +37,21 @@ export async function parseSessionFile(path, sessionMeta = {}) {
   const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
   for await (const line of rl) {
-    if (!line || line.charCodeAt(0) !== 123 /* '{' */) continue;
+    if (!line || line.charCodeAt(0) !== 123 ) continue;
     let rec;
     try {
       rec = JSON.parse(line);
     } catch {
-      continue; // truncated/corrupt line (live files mutate mid-scan)
+      continue;
     }
     try {
       ingestRecord(session, rec);
     } catch {
-      continue; // unknown shape — tolerate, never crash
+      continue;
     }
   }
   rl.close();
 
-  // fold merged assistant usage into totals
   for (const usage of session._usageByMsgId.values()) {
     session.stats.inputTokens += usage.input_tokens || 0;
     session.stats.outputTokens += usage.output_tokens || 0;
@@ -92,7 +74,7 @@ function ingestRecord(session, rec) {
       break;
     case 'system':
       indexDagNode(session, rec, {
-        // compaction boundary restarts parentUuid; stitch the logical chain
+
         parentOverride:
           rec.subtype === 'compact_boundary' && rec.logicalParentUuid
             ? rec.logicalParentUuid
@@ -100,23 +82,22 @@ function ingestRecord(session, rec) {
       });
       break;
     case 'attachment':
-      indexDagNode(session, rec); // chains pass through attachments
+      indexDagNode(session, rec);
       break;
-    case 'summary': // legacy (<2.1.133)
+    case 'summary':
       if (rec.summary && !session.title) session.title = rec.summary;
       break;
-    case 'ai-title': // last occurrence wins
+    case 'ai-title':
       if (rec.aiTitle || rec.title) session.title = rec.aiTitle || rec.title;
       break;
-    case 'custom-title': // user-set, beats ai-title
+    case 'custom-title':
       if (rec.customTitle) session.customTitle = rec.customTitle;
       break;
-    case 'last-prompt': // last occurrence's leafUuid = live branch tip
+    case 'last-prompt':
       if (rec.leafUuid) session.activeLeafUuid = rec.leafUuid;
       break;
     default:
-      // mode, permission-mode, bridge-session, queue-operation,
-      // file-history-snapshot, unknown future types — not lineage material
+
       break;
   }
 
@@ -141,17 +122,14 @@ function indexDagNode(session, rec, { parentOverride } = {}) {
 }
 
 function ingestUser(session, rec) {
-  // Sidechain traffic is agent-authored even when it mimics human voice.
-  // (Sidechains live in separate files; belt-and-suspenders for inline ones.)
+
   if (rec.isSidechain || rec.agentId) return;
   indexDagNode(session, rec);
   session.stats.userLines++;
 
-  // Tool plumbing: results echo back as user records (~90% of user lines),
-  // marked by toolUseResult / sourceToolAssistantUUID even for string content.
   if (rec.toolUseResult !== undefined || rec.sourceToolAssistantUUID !== undefined) return;
 
-  if (rec.isMeta) return; // caveats, skill-body injections
+  if (rec.isMeta) return;
   if (rec.isCompactSummary) {
     session.isContinuation = true;
     return;
@@ -178,14 +156,12 @@ function ingestUser(session, rec) {
     return;
   }
   if (classification === 'command') {
-    // Slash-command wrappers are noise — unless the human packed real intent
-    // into the args (e.g. `/loop <multi-line work focus>`).
+
     const invocation = extractCommandInvocation(trimmed);
     if (!invocation) return;
     trimmed = invocation;
   }
 
-  // Image-only records are often screenshot feedback — meaningful, keep.
   if (!trimmed && hasImage) trimmed = '[image-only prompt: screenshot/annotated feedback]';
   if (!trimmed) return;
 
@@ -210,9 +186,7 @@ function ingestAssistant(session, rec) {
   const synthetic = msg.model === '<synthetic>' || rec.isApiErrorMessage;
 
   if (msg.model && !synthetic) session.stats.models.add(msg.model);
-  // One API message = N split records sharing message.id, usage repeated on
-  // each (main sessions) or present only on the last (subagent files):
-  // keep the latest non-empty usage per id, sum after parsing.
+
   if (msg.usage && !synthetic && (msg.usage.input_tokens || msg.usage.output_tokens)) {
     session._usageByMsgId.set(msg.id || rec.uuid, msg.usage);
   }
@@ -249,7 +223,7 @@ function flattenUserContent(content) {
     } else if (block.type === 'image') {
       images++;
     } else {
-      others++; // documents, future block types
+      others++;
     }
   }
   return {
@@ -286,8 +260,6 @@ export function classifySpecialUserText(text) {
   return 'prompt';
 }
 
-// `/loop de-swamp & polish ...` — wrapper noise, but non-empty <command-args>
-// is the human's actual instruction. Returns reconstructed text or null.
 export function extractCommandInvocation(text) {
   const name = text.match(/<command-name>([^<]*)<\/command-name>/)?.[1]?.trim();
   const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
@@ -295,11 +267,6 @@ export function extractCommandInvocation(text) {
   return `${name || '(command)'} ${args}`;
 }
 
-/**
- * Fallback importer: plain text / markdown transcripts (pasted exports from
- * ChatGPT, Claude.ai, etc.). Recognizes common turn markers; returns a
- * session-shaped object with prompts only.
- */
 export function parsePlainTranscript(text, label = 'pasted-transcript') {
   const lines = text.split(/\r?\n/);
   const markers =

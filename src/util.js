@@ -49,7 +49,6 @@ export function formatDay(ts) {
   return d.toISOString().slice(0, 10);
 }
 
-// Span of calendar days covered by a set of timestamps, e.g. "9 days" / "1 day".
 export function daySpan(timestamps) {
   const valid = timestamps.map((t) => new Date(t).getTime()).filter(Number.isFinite);
   if (!valid.length) return null;
@@ -70,8 +69,6 @@ export function shannonEntropy(s) {
   return entropy;
 }
 
-// Escape text destined for a Markdown document so it cannot break out of its
-// surrounding structure (tables, emphasis). Conservative: only what's needed.
 export function mdEscapePipe(s) {
   return String(s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }

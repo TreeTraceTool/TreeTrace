@@ -15,7 +15,7 @@
     "regression",
     "memory"
   ],
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "author": "Zion Boggan",
   "type": "module",
   "bin": {

@@ -1,11 +1,6 @@
 import { REPO_URL } from './config.js';
 import { analyzeTree } from './analyze.js';
 
-/**
- * Machine-readable export: TreeTrace lineage schema v0.2.
- * Documented in SCHEMA.md with a mapping to the Agent Trace RFC.
- */
-
 const RELATIONSHIP_BY_KIND = {
   direction: 'refines',
   correction: 'corrects',
@@ -73,8 +68,7 @@ export function renderJson(tree, opts = {}) {
       failureSignals: n.failureSignals || [],
       evalCandidate: Boolean(n.evalCandidate),
       lessonIds: n.lessonIds || [],
-      // source linkage for audit: the original record uuid inside the local
-      // session transcript (raw transcripts themselves are never exported)
+
       sourceEventIds: n.uuid ? [n.uuid] : [],
     })),
     edges: nodes

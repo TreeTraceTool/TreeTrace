@@ -2,7 +2,10 @@ node_modules/
 *.log
 .DS_Store
 
-# Local redaction-decision cache (hashes + actions only, never secrets).
-# Kept out of git because it's per-machine resolution state, not shareable
-# lineage. The shareable companion — .treetrace/tree.json — IS committed.
 .treetrace/redactions.json
+
+/.treetrace/
+/PROMPT_TREE.md
+/TREETRACE_REPORT.md
+
+_ops/

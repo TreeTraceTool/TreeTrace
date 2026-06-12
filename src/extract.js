@@ -1,13 +1,5 @@
 import { truncate } from './util.js';
 
-/**
- * Classify candidate human prompts into lineage roles and fold noise.
- *
- * Deterministic by design: the same transcript always produces the same tree.
- * An optional --llm pass (the user's own model) may later retitle nodes, but
- * classification never depends on it.
- */
-
 const KIND = {
   ROOT: 'root',
   DIRECTION: 'direction',
@@ -17,13 +9,11 @@ const KIND = {
   QUESTION: 'question',
 };
 
-// Strong correction signals: explicit negation/undo — these outrank scope.
 const CORRECTION_STRONG_OPENERS =
   /^(no[,.\s]|no$|not |don'?t |stop\b|wrong\b|undo\b|revert\b|nope\b|that'?s (not|wrong)|why did you)/i;
 const CORRECTION_ANYWHERE =
   /(didn'?t work|doesn'?t work|not working|still (failing|broken|wrong|not)|that broke|you (missed|forgot|skipped|ignored)|redo (this|that|it)|go back|that'?s incorrect|not what i (asked|meant|wanted)|undo (this|that)|roll(?: |-)?back)/i;
-// Soft correction signals: conversational pivots — only count when nothing
-// stronger (like an additive scope change) explains the message.
+
 const CORRECTION_SOFT_OPENERS = /^(wait\b|actually[,\s]|hold on\b|hmm[,\s]|instead[,\s])/i;
 
 const SCOPE_ANYWHERE =
@@ -35,16 +25,11 @@ const CHECKPOINT_ANYWHERE =
 const QUESTION_ONLY =
   /^(what|how|why|where|when|which|who|is|are|can|could|should|would|will|do|does|did)\b[^]*\?\s*$/i;
 
-// Short acknowledgements that nudge the agent along but carry no direction.
-// NB: bare numerals / "option B" are NOT here — they select from an offered
-// menu and steer the project (corpus ground truth), so they become nodes.
 const CONTINUATION_RE =
   /^(y|yes|yep|yeah|ok|okay|k|sure|continue|cont|go|go ahead|do it|proceed|next|sounds good|looks good|lgtm|perfect|nice|good|great|approved?|yes please|please do|carry on|keep going|resume|finish|all good|that works|works|👍|do that)[.! ]*$/i;
 
-// Menu selections: tiny text, real steering — titled specially.
 const SELECTION_RE = /^(?:option\s+)?([0-9]{1,2}|[a-d])[.)! ]*$/i;
 
-// Explicit self-described throwaways ("Test message. Ignore this.")
 const IGNORE_RE = /\bignore this\b/i;
 
 const MAX_NUDGE_WORDS = 4;
@@ -59,9 +44,6 @@ export function classifyPrompts(sessions) {
       const text = prompt.text;
       const words = text.split(/\s+/).filter(Boolean);
 
-      // The same human message can appear twice in a transcript (queued
-      // resend, bridge echo, draft-then-full edit). Collapse consecutive
-      // duplicates, including prefix-duplicates — keep the longer text.
       if (prevNode && isDupOf(prevNode.text, text)) {
         if (text.length > prevNode.text.length) {
           prevNode.text = text;
@@ -72,16 +54,13 @@ export function classifyPrompts(sessions) {
         continue;
       }
 
-      // Re-armed recurring prompts (/loop restarts, repeated dispatches with
-      // small wording drift) collapse into one node with a re-run counter.
       if (prevNode && isRerunOf(prevNode.text, text)) {
         prevNode.reruns = (prevNode.reruns || 0) + 1;
-        prevNode.text = text; // latest wording wins
+        prevNode.text = text;
         prevNode.title = makeTitle(text);
         continue;
       }
 
-      // Fold pure nudges into the previous node instead of creating noise nodes.
       if (
         prevNode &&
         words.length <= MAX_NUDGE_WORDS &&
@@ -91,7 +70,6 @@ export function classifyPrompts(sessions) {
         continue;
       }
 
-      // Self-described throwaways never become lineage.
       if (words.length <= 6 && IGNORE_RE.test(text)) continue;
 
       const selection = rootAssigned && SELECTION_RE.exec(text);
@@ -109,7 +87,7 @@ export function classifyPrompts(sessions) {
         afterInterruption: prompt.afterInterruption,
         chars: text.length,
       } : {
-        id: null, // assigned by tree builder
+        id: null,
         uuid: prompt.uuid,
         parentUuid: prompt.parentUuid,
         sessionId: session.sessionId,
@@ -117,7 +95,7 @@ export function classifyPrompts(sessions) {
         text,
         title: makeTitle(text),
         kind: classifyOne(text, prompt, rootAssigned),
-        status: 'accepted', // tree builder may demote to abandoned
+        status: 'accepted',
         nudges: 0,
         afterInterruption: prompt.afterInterruption,
         chars: text.length,
@@ -130,27 +108,22 @@ export function classifyPrompts(sessions) {
   return nodes;
 }
 
-// Two consecutive messages are duplicates if one is (nearly) a prefix of the
-// other after whitespace normalization — covers truncated draft echoes.
 function isDupOf(a, b) {
   const na = a.replace(/\s+/g, ' ').trim();
   const nb = b.replace(/\s+/g, ' ').trim();
   if (na === nb) return true;
   const [short, long] = na.length <= nb.length ? [na, nb] : [nb, na];
-  if (short.length < 24) return false; // too short to call a prefix-dup safely
-  // tolerate a few trailing chars of divergence (cut-off mid-word)
+  if (short.length < 24) return false;
+
   return long.startsWith(short.slice(0, short.length - 4));
 }
 
-// Same recurring instruction re-issued with wording drift: identical opening
-// (command name / first words) plus high common-prefix overlap.
 function isRerunOf(a, b) {
   const na = a.replace(/\s+/g, ' ').trim();
   const nb = b.replace(/\s+/g, ' ').trim();
   if (na.length < 40 || nb.length < 40) return false;
   if (na.slice(0, 24) !== nb.slice(0, 24)) return false;
-  // Command re-arms (/loop, /dispatch …): same command + same opening counts
-  // as a re-issue even when the long arg body drifts.
+
   if (na.startsWith('/') && na.slice(0, 32) === nb.slice(0, 32)) return true;
   const limit = Math.min(na.length, nb.length);
   let common = 0;
@@ -168,7 +141,6 @@ function classifyOne(text, prompt, rootAssigned) {
   return KIND.DIRECTION;
 }
 
-// First sentence-ish fragment, cleaned, for node titles.
 export function makeTitle(text) {
   const firstLine = text.split(/\r?\n/).find((l) => l.trim()) || text;
   const sentence = firstLine.split(/(?<=[.!?])\s+/)[0] || firstLine;

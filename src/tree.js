@@ -1,19 +1,9 @@
 import { daySpan } from './util.js';
 
-/**
- * Build the lineage tree from classified prompt nodes + session topology.
- *
- * Claude Code records form a DAG via parentUuid: rewinds and forks create
- * real branches. The "main path" of a session is the ancestor chain of its
- * final record; prompts off that chain were abandoned (rewound away).
- */
 export function buildTree(sessions, nodes) {
   const byUuid = new Map();
   for (const node of nodes) if (node.uuid) byUuid.set(node.uuid, node);
 
-  // Per-session main-path sets (uuids of records that "made it" to the end).
-  // The last `last-prompt` record's leafUuid is the authoritative live-branch
-  // tip; the last addressable record is the fallback.
   const mainPaths = new Map();
   for (const session of sessions) {
     const main = new Set();
@@ -29,7 +19,6 @@ export function buildTree(sessions, nodes) {
     mainPaths.set(session.sessionId, main);
   }
 
-  // Parent resolution: walk up the record chain to the nearest prompt node.
   const sessionById = new Map(sessions.map((s) => [s.sessionId, s]));
   for (const node of nodes) {
     node.parent = null;
@@ -48,9 +37,6 @@ export function buildTree(sessions, nodes) {
     }
   }
 
-  // Session ordering by first activity, then chain sessions together:
-  // the first parentless node of a session hangs off the previous session's
-  // last main-path node.
   const ordered = [...sessions].sort((a, b) =>
     String(a.firstTs || '').localeCompare(String(b.firstTs || ''))
   );
@@ -66,7 +52,7 @@ export function buildTree(sessions, nodes) {
     if (!sNodes.length) continue;
     for (const node of sNodes) {
       if (!node.parent && node !== sNodes[0]) {
-        // orphan mid-session (uuid chain broken) — chain linearly
+
         node.parent = sNodes[sNodes.indexOf(node) - 1];
       }
     }
@@ -81,11 +67,6 @@ export function buildTree(sessions, nodes) {
     prevTail = tail || sNodes[sNodes.length - 1];
   }
 
-  // Status: a prompt is abandoned only if it sits on a dead side-branch of a
-  // REAL fork — i.e. walking up its record chain reaches a node that IS on the
-  // session's main path while the prompt itself is not. parentUuid chains can
-  // reset mid-file (bridge events, compaction); a broken chain is not a fork,
-  // so prompts above a break stay accepted.
   for (const node of nodes) {
     if (!node.uuid) continue;
     const main = mainPaths.get(node.sessionId);
@@ -102,7 +83,6 @@ export function buildTree(sessions, nodes) {
     }
   }
 
-  // ids + children
   nodes.forEach((n, i) => {
     n.id = `node_${String(i + 1).padStart(3, '0')}`;
     n.children = [];

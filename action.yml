@@ -9,7 +9,7 @@ inputs:
   source:
     description: >
       Path to a transcript file (.jsonl or plain text) committed or produced in
-      CI. Session logs live on dev machines, not in CI — typical usage is
+      CI. Session logs live on dev machines, not in CI, so typical usage is
       regenerating PROMPT_TREE.md from a committed .treetrace/tree.json or an
       uploaded transcript artifact.
     required: false
@@ -30,14 +30,13 @@ runs:
           npx --yes treetrace --file "${{ inputs.source }}" --redact-auto --quiet
         elif [ -f .treetrace/tree.json ]; then
           echo "::notice::Using committed .treetrace/tree.json"
-          # re-render markdown from committed lineage (no transcripts in CI)
           node -e "
             const { readFileSync, writeFileSync } = require('fs');
             const data = JSON.parse(readFileSync('.treetrace/tree.json','utf8'));
-            console.log('lineage present:', data.nodes.length, 'nodes — TREETRACE_REPORT.md and PROMPT_TREE.md should be committed alongside it');
+            console.log('lineage present:', data.nodes.length, 'nodes. TREETRACE_REPORT.md and PROMPT_TREE.md should be committed alongside it');
           "
         else
-          echo "::warning::No source transcript or .treetrace/tree.json found — nothing to do."
+          echo "::warning::No source transcript or .treetrace/tree.json found, nothing to do."
         fi
     - name: Comment on PR
       if: ${{ inputs.comment-pr == 'true' && github.event_name == 'pull_request' }}

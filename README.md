@@ -54,20 +54,20 @@ TreeTrace is the local-first layer between raw chat logs, runtime traces, and co
 
 ## Usage
 
-```bash
-npx treetrace                         # trace this project and write all artifacts
-npx treetrace --report                # write all artifacts and print the human report
-npx treetrace --handoff               # print an agent-ready continuation brief
-npx treetrace --file session.jsonl    # import specific transcript(s)
-npx treetrace --stdin < chat.txt      # parse pasted User:/Assistant: transcript text
-npx treetrace --failures              # write and print .treetrace/failures.json
-npx treetrace --lessons               # write and print .treetrace/lessons.md
-npx treetrace --evals                 # write and print .treetrace/evals.jsonl
-npx treetrace --memory                # write and print .treetrace/agent-memory.md
-npx treetrace --titles-only           # compact human tree, no full prompt details
-npx treetrace --redact-auto           # redact every detected secret without prompting
-npx treetrace --since 2026-06-01
-```
+| Command | What it does |
+|---------|--------------|
+| `npx treetrace` | Trace this project and write all artifacts |
+| `npx treetrace --report` | Write all artifacts and print the human report |
+| `npx treetrace --handoff` | Print an agent ready continuation brief |
+| `npx treetrace --file session.jsonl` | Import specific transcripts |
+| `npx treetrace --stdin < chat.txt` | Parse a pasted `User:` / `Assistant:` transcript |
+| `npx treetrace --failures` | Write and print `.treetrace/failures.json` |
+| `npx treetrace --lessons` | Write and print `.treetrace/lessons.md` |
+| `npx treetrace --evals` | Write and print `.treetrace/evals.jsonl` |
+| `npx treetrace --memory` | Write and print `.treetrace/agent-memory.md` |
+| `npx treetrace --titles-only` | Compact human tree, no full prompt details |
+| `npx treetrace --redact-auto` | Redact every detected secret without prompting |
+| `npx treetrace --since 2026-06-01` | Limit to sessions on or after a date |
 
 For a Termius, Codex CLI, Claude Code, or SSH session where you want the report in the terminal window, use:
 
@@ -151,8 +151,12 @@ The strongest identity is:
 
 ## License
 
-MIT (c) Zion Boggan
+GNU Affero General Public License v3.0 only (AGPL-3.0-only).
+
+Copyright 2026 Zion Boggan.
+
+You may use, study, share, and modify TreeTrace under the terms of the AGPL version 3. If you run a modified version as a network service, you must offer its users the corresponding source. See [LICENSE](LICENSE).
 
 ---
 
-This repository ships its own [PROMPT_TREE.md](PROMPT_TREE.md), but the Markdown tree is now one artifact among several. The main product is structured, local, eval-ready knowledge about how agents fail and how humans correct them.
+See [examples/](examples/) for a full set of generated artifacts. The Markdown tree is one artifact among several: the main product is structured, local, eval-ready knowledge about how agents fail and how humans correct them.
