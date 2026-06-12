@@ -48,7 +48,7 @@ A privacy-positioned tool gets exactly one chance with your secrets, so this is 
 - Curated provider rules (AWS, GitHub, GitLab, Anthropic, OpenAI, Slack, Stripe, npm, Tailscale, Google, SendGrid, Twilio, Telegram, Discord webhooks, JWTs, private key blocks, WireGuard, basic-auth URLs, bearer tokens, secret assignments) plus a high-entropy fallback.
 - Interactive review of every unique hit before anything is written.
 - A **shadow scan** re-checks the final rendered artifact; an unresolved hit aborts the write.
-- Your decisions persist in `.treetrace/redactions.json` as salted-free **hashes only** — the file never contains a secret and re-runs never re-ask.
+- Your decisions persist in `.treetrace/redactions.json` keyed by **content hash only** — the file stores the hash and your chosen action, never the secret itself, so re-runs skip resolved hits without ever recording sensitive data.
 
 ## Usage
 
@@ -69,7 +69,7 @@ npx treetrace --since 2026-06-01
 |--------|--------|
 | Claude Code (`~/.claude/projects` JSONL) | ✅ built-in, zero-config |
 | Pasted / plain-text transcripts (`User:` / `Assistant:` markers) | ✅ built-in |
-| Codex CLI, Cursor, SpecStory, ChatGPT export | 🚧 importers welcome — [open an issue](https://github.com/zionsworking/treetrace/issues) |
+| Codex CLI, Cursor, SpecStory, ChatGPT export | 🚧 importers welcome — [open an issue](https://github.com/REPLACE-ME-ORG/treetrace/issues) |
 
 ## The format
 

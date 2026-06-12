@@ -1,3 +1,5 @@
+import { REPO_URL } from './config.js';
+
 /**
  * Machine-readable export: treetrace lineage schema v0.1.
  * Documented in SCHEMA.md with a mapping to the Agent Trace RFC.
@@ -18,7 +20,7 @@ export function renderJson(tree, opts = {}) {
 
   return {
     schemaVersion: '0.1',
-    generator: { name: generatedBy, version, url: 'https://github.com/zionsworking/treetrace' },
+    generator: { name: generatedBy, version, url: REPO_URL },
     project: {
       name: projectName,
       generatedAt: opts.generatedAt || null,

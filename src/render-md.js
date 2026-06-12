@@ -1,4 +1,5 @@
 import { truncate, plural, formatDay, mdEscapePipe } from './util.js';
+import { REPO_URL } from './config.js';
 
 const ICONS = {
   root: '⬢',
@@ -9,7 +10,6 @@ const ICONS = {
   question: '?',
 };
 
-const REPO_URL = 'https://github.com/zionsworking/treetrace';
 const MAX_NODE_TEXT = 1500;
 
 export function renderMarkdown(tree, opts = {}) {

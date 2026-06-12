@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "0.1",
+  "generator": {
+    "name": "treetrace",
+    "version": "0.1.0",
+    "url": "https://github.com/REPLACE-ME-ORG/treetrace"
+  },
+  "project": {
+    "name": "weather-dashboard",
+    "generatedAt": "2026-06-12T00:01:29.681Z",
+    "sourceType": "claude-code-jsonl"
+  },
+  "stats": {
+    "prompts": 4,
+    "sessions": 1,
+    "days": 1,
+    "corrections": 1,
+    "scopeChanges": 1,
+    "checkpoints": 0,
+    "abandonedBranches": 0,
+    "toolUses": 2,
+    "filesTouched": 1,
+    "models": [
+      "assistant-model"
+    ],
+    "firstTs": "2026-06-01T10:00:00.000Z",
+    "lastTs": "2026-06-01T10:12:00.000Z"
+  },
+  "sessions": [
+    {
+      "id": "synthetic-session",
+      "title": "Build a weather dashboard",
+      "firstTs": "2026-06-01T10:00:00.000Z",
+      "lastTs": "2026-06-01T10:12:00.000Z",
+      "promptCount": 5,
+      "isContinuation": false
+    }
+  ],
+  "nodes": [
+    {
+      "id": "node_001",
+      "parentId": null,
+      "role": "user",
+      "kind": "root",
+      "title": "Build a weather dashboard web app that shows the forecast for Memphis using the NWS API.",
+      "text": "Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.",
+      "status": "accepted",
+      "nudges": 1,
+      "reruns": 0,
+      "session": "synthetic-session",
+      "timestamp": "2026-06-01T10:00:00.000Z",
+      "sourceEventIds": [
+        "u1"
+      ]
+    },
+    {
+      "id": "node_002",
+      "parentId": "node_001",
+      "role": "user",
+      "kind": "direction",
+      "title": "Try using leaflet for an interactive radar map layer on top of the forecast.",
+      "text": "Try using leaflet for an interactive radar map layer on top of the forecast.",
+      "status": "accepted",
+      "nudges": 0,
+      "reruns": 0,
+      "session": "synthetic-session",
+      "timestamp": "2026-06-01T10:04:00.000Z",
+      "sourceEventIds": [
+        "u5"
+      ]
+    },
+    {
+      "id": "node_003",
+      "parentId": "node_002",
+      "role": "user",
+      "kind": "correction",
+      "title": "No, scrap the radar map, it is too heavy.",
+      "text": "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.",
+      "status": "accepted",
+      "nudges": 0,
+      "reruns": 0,
+      "session": "synthetic-session",
+      "timestamp": "2026-06-01T10:09:00.000Z",
+      "sourceEventIds": [
+        "u7"
+      ]
+    },
+    {
+      "id": "node_004",
+      "parentId": "node_003",
+      "role": "user",
+      "kind": "scope-change",
+      "title": "Actually wait — also add a settings panel so the user can switch cities.",
+      "text": "Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]",
+      "status": "accepted",
+      "nudges": 0,
+      "reruns": 0,
+      "session": "synthetic-session",
+      "timestamp": "2026-06-01T10:12:00.000Z",
+      "sourceEventIds": [
+        "u9"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "node_001",
+      "to": "node_002",
+      "relationship": "refines"
+    },
+    {
+      "from": "node_002",
+      "to": "node_003",
+      "relationship": "corrects"
+    },
+    {
+      "from": "node_003",
+      "to": "node_004",
+      "relationship": "expands"
+    }
+  ]
+}
