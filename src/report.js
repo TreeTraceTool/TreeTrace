@@ -44,6 +44,9 @@ export function renderReportMarkdown(tree, opts = {}) {
   if (analysis.summary.models && analysis.summary.models.length) {
     lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
   }
+  if (analysis.summary.thinkingBlocks) {
+    lines.push(`- Reasoning blocks captured: ${analysis.summary.thinkingBlocks}`);
+  }
   lines.push(`- Eval candidates: ${analysis.summary.evalCandidates}`);
   lines.push(`- Lessons: ${analysis.summary.lessons}`);
   lines.push('');

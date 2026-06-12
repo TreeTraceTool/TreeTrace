@@ -41,12 +41,14 @@ export function analyzeTree(tree) {
   if (tree.analysis) return tree.analysis;
 
   const modelsSeen = new Set();
+  let thinkingBlocks = 0;
   for (const node of tree.nodes) {
     node.failureSignals = [];
     node.evalCandidate = false;
     node.lessonIds = [];
     node.model = (node.actions || []).map((a) => a.model).find(Boolean) || null;
     for (const a of node.actions || []) if (a.model) modelsSeen.add(a.model);
+    thinkingBlocks += node.thinking || 0;
   }
 
   const failures = [];
@@ -225,6 +227,7 @@ export function analyzeTree(tree) {
       topFailureTypes,
       tierCounts: countTiers(failures),
       models: [...modelsSeen],
+      thinkingBlocks,
       correctionChains: correctionChains.length,
       evalCandidates: evalCandidates.length,
       lessons: lessons.length,
