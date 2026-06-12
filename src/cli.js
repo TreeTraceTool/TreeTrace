@@ -155,6 +155,7 @@ export async function main(argv) {
   const requested = requestedArtifacts(opts, artifacts);
   if (requested.length) {
     for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
+    mkdirSync(projectDir, { recursive: true });
     mkdirSync(ttDir, { recursive: true });
     for (const artifact of requested) writeFileSync(artifact.path, artifact.text);
     writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
@@ -172,9 +173,10 @@ export async function main(argv) {
   for (const artifact of Object.values(artifacts)) assertClean(artifact.text, decisions, artifact.label);
   assertClean(report, decisions, 'TREETRACE_REPORT.md');
 
+  mkdirSync(projectDir, { recursive: true });
+  mkdirSync(ttDir, { recursive: true });
   writeFileSync(outPath, md);
   writeFileSync(reportPath, report);
-  mkdirSync(ttDir, { recursive: true });
   writeFileSync(join(ttDir, 'tree.json'), jsonText);
   for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
 

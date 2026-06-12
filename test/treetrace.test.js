@@ -239,6 +239,19 @@ test('cli: default run writes analysis artifacts with redaction', async () => {
   }
 });
 
+test('cli: creates the output directory and .treetrace subdirectory when missing', async () => {
+  const base = mkdtempSync(join(tmpdir(), 'treetrace-'));
+  const dir = join(base, 'does', 'not', 'exist', 'yet');
+  try {
+    assert.ok(!existsSync(dir), 'target dir should not exist before the run');
+    await main(['--file', FIXTURE, '--dir', dir, '--redact-auto', '--quiet']);
+    assert.ok(existsSync(join(dir, 'PROMPT_TREE.md')), 'PROMPT_TREE.md missing');
+    assert.ok(existsSync(join(dir, '.treetrace', 'tree.json')), '.treetrace/tree.json missing');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('plain transcript fallback parses User:/Assistant: markers', () => {
   const session = parsePlainTranscript(
     'User: build me a snake game in python\nAssistant: sure, here is the code...\nUser: make the snake blue\nAssistant: done',
