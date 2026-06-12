@@ -1,4 +1,28 @@
-import { newSession, finalizeSession, pushTurn, looksSynthetic } from './shared.js';
+import { newSession, finalizeSession, pushTurn, addAction, looksSynthetic } from './shared.js';
+
+function parseCursorParams(tfd) {
+  const raw = tfd && (tfd.params || tfd.rawArgs);
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function cursorToolFile(tfd) {
+  const p = parseCursorParams(tfd);
+  return (p && (p.file_path || p.path || p.target_file || p.relativePath)) || null;
+}
+
+function cursorToolCommand(tfd) {
+  const p = parseCursorParams(tfd);
+  return p && typeof p.command === 'string' ? p.command : null;
+}
 
 function isUserBubble(bubble) {
   if (bubble.type === 1 || bubble.type === 'user') return true;
@@ -58,6 +82,12 @@ function parseExportedSession(parsed, path, sessionId) {
           session.stats.toolUses++;
           const file = call && (call.filePath || (call.args && (call.args.file_path || call.args.path)));
           if (typeof file === 'string') session.stats.filesTouched.add(file);
+          addAction(session, {
+            tool: (call && call.name) || null,
+            file: typeof file === 'string' ? file : null,
+            command: call && call.args && typeof call.args.command === 'string' ? call.args.command : null,
+            model: msg.model || null,
+          });
         }
       }
     }
@@ -117,7 +147,18 @@ export function parseCursor(parsed, path, sessionId) {
       pushTurn(session, ++turn, text, ts);
     } else {
       session.stats.assistantLines++;
-      if (Array.isArray(bubble.toolFormerData) || bubble.toolFormerData) session.stats.toolUses++;
+      if (bubble.toolFormerData) {
+        session.stats.toolUses++;
+        const tfd = bubble.toolFormerData;
+        const file = cursorToolFile(tfd);
+        if (typeof file === 'string') session.stats.filesTouched.add(file);
+        addAction(session, {
+          tool: tfd.name || null,
+          file: file || null,
+          command: cursorToolCommand(tfd),
+          model: bubble.model || null,
+        });
+      }
     }
   }
   return finalizeSession(session);

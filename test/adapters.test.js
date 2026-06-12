@@ -162,3 +162,55 @@ test('codex import emits actions that drive a verified security signal and model
   assert.deepEqual(analysis.summary.models, ['gpt-5.5']);
   assert.ok(analysis.summary.thinkingBlocks >= 1);
 });
+
+test('gemini import emits actions for a verified security signal', () => {
+  const obj = {
+    sessionId: 'g1',
+    messages: [
+      { type: 'user', content: [{ text: 'Add rate limiting to checkout' }], timestamp: '2026-06-12T10:00:00Z' },
+      { type: 'gemini', model: 'gemini-3-flash', timestamp: '2026-06-12T10:00:05Z', toolCalls: [{ name: 'edit_file', args: { file_path: 'src/auth/middleware.ts' } }], thoughts: [{ subject: 'a', description: 'b' }] },
+    ],
+  };
+  const sessions = adaptFrom('gemini', JSON.stringify(obj), fx('gemini-synth.json'));
+  const analysis = analyzeTree(pipeline(sessions).tree);
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified');
+  assert.ok(sec, 'gemini import should produce a verified security signal');
+  assert.equal(sec.model, 'gemini-3-flash');
+  assert.ok(analysis.summary.thinkingBlocks >= 1);
+});
+
+test('copilot import emits actions from toolSpecificData for a verified security signal', () => {
+  const obj = {
+    version: 3,
+    requests: [
+      {
+        requestId: 'r1',
+        message: { text: 'Add rate limiting to checkout' },
+        result: { metadata: { modelId: 'gpt-4o-copilot' } },
+        response: [{ kind: 'toolInvocationSerialized', toolId: 'copilot_editFile', toolSpecificData: { uri: { path: 'src/auth/session.ts' } } }],
+      },
+    ],
+  };
+  const sessions = adaptFrom('copilot', JSON.stringify(obj), fx('copilot-synth.json'));
+  const analysis = analyzeTree(pipeline(sessions).tree);
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified');
+  assert.ok(sec, 'copilot import should produce a verified security signal');
+  assert.equal(sec.model, 'gpt-4o-copilot');
+});
+
+test('cursor import emits actions from exported tool calls for a verified security signal', () => {
+  const obj = {
+    id: 'cur1',
+    title: 'session',
+    workspaceId: 'w1',
+    messages: [
+      { role: 'user', content: 'Add rate limiting to checkout', timestamp: '2026-06-12T10:00:00Z' },
+      { role: 'assistant', model: 'claude-sonnet-4-6', toolCalls: [{ name: 'edit_file', filePath: 'src/auth/session.ts' }] },
+    ],
+  };
+  const sessions = adaptFrom('cursor', JSON.stringify(obj), fx('cursor-synth.json'));
+  const analysis = analyzeTree(pipeline(sessions).tree);
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified');
+  assert.ok(sec, 'cursor import should produce a verified security signal');
+  assert.equal(sec.model, 'claude-sonnet-4-6');
+});

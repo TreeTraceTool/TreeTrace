@@ -1,4 +1,4 @@
-import { newSession, finalizeSession, pushTurn, looksSynthetic } from './shared.js';
+import { newSession, finalizeSession, pushTurn, addAction, looksSynthetic } from './shared.js';
 
 export function detectCopilot(parsed) {
   return Boolean(
@@ -21,12 +21,24 @@ function userText(message) {
   return '';
 }
 
-function countResponse(session, response) {
+function ingestResponse(session, response, model) {
   if (!Array.isArray(response)) return;
   for (const item of response) {
-    if (item && (item.kind === 'toolInvocation' || item.kind === 'toolInvocationSerialized')) {
-      session.stats.toolUses++;
-    }
+    if (!item || (item.kind !== 'toolInvocation' && item.kind !== 'toolInvocationSerialized')) continue;
+    session.stats.toolUses++;
+    const tsd = item.toolSpecificData || {};
+    const uri = tsd.uri;
+    const file =
+      uri && typeof uri === 'object' ? uri.path || uri.fsPath || null : typeof uri === 'string' ? uri : null;
+    const command =
+      typeof tsd.command === 'string' ? tsd.command : typeof tsd.commandLine === 'string' ? tsd.commandLine : null;
+    if (file) session.stats.filesTouched.add(file);
+    addAction(session, {
+      tool: item.toolId || (item.prepareToolInvocation && item.prepareToolInvocation.toolName) || null,
+      file: file || null,
+      command,
+      model: model || null,
+    });
   }
 }
 
@@ -36,14 +48,14 @@ export function parseCopilot(parsed, path, sessionId) {
   for (const req of parsed.requests) {
     if (!req) continue;
     session.stats.assistantLines++;
-    countResponse(session, req.response);
-    if (req.result && req.result.metadata && req.result.metadata.modelId) {
-      session.stats.models.add(req.result.metadata.modelId);
-    }
+    const modelId = (req.result && req.result.metadata && req.result.metadata.modelId) || null;
+    if (modelId) session.stats.models.add(modelId);
     const text = userText(req.message);
-    if (looksSynthetic(text)) continue;
-    const ts = req.timestamp ? new Date(req.timestamp).toISOString() : null;
-    pushTurn(session, ++turn, text, ts);
+    if (!looksSynthetic(text)) {
+      const ts = req.timestamp ? new Date(req.timestamp).toISOString() : null;
+      pushTurn(session, ++turn, text, ts);
+    }
+    ingestResponse(session, req.response, modelId);
   }
   return finalizeSession(session);
 }

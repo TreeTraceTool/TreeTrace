@@ -2,6 +2,8 @@ import {
   newSession,
   finalizeSession,
   pushTurn,
+  addAction,
+  addThinking,
   flattenParts,
   looksSynthetic,
   readJsonl,
@@ -35,8 +37,15 @@ function ingestRecord(session, rec, counters) {
         session.stats.toolUses++;
         const file = call && call.args && (call.args.file_path || call.args.path || call.args.absolute_path);
         if (typeof file === 'string') session.stats.filesTouched.add(file);
+        addAction(session, {
+          tool: (call && call.name) || null,
+          file: typeof file === 'string' ? file : null,
+          command: call && call.args && typeof call.args.command === 'string' ? call.args.command : null,
+          model: rec.model || null,
+        });
       }
     }
+    if (Array.isArray(rec.thoughts) && rec.thoughts.length) addThinking(session, rec.thoughts.length);
     if (rec.tokens) {
       session.stats.inputTokens += rec.tokens.prompt || rec.tokens.input || 0;
       session.stats.outputTokens += rec.tokens.candidate || rec.tokens.output || 0;

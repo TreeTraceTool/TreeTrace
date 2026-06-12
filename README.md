@@ -176,16 +176,23 @@ the source of every fixture.
 | xAI Grok exported conversation JSON | `grok` | Experimental, built to the exporter schema |
 | Pasted / plain-text transcripts (`User:` / `Assistant:`) | `transcript` | Built-in fallback |
 
-Cursor stores chat in a `state.vscdb` SQLite database. TreeTrace ships with zero
-runtime dependencies and does not open SQLite, so the Cursor adapter ingests an
-exported chat JSON instead. Export your Cursor chat to JSON first (for example
-with a community Cursor chat exporter), then run
-`treetrace --from cursor --file your-chat.json`.
+### Why TreeTrace does not read SQLite
 
-The Grok adapter targets the exported conversation JSON used by Grok CLI tools
-(the xAI OpenAI-compatible `role` / `content` message shape). The widely used
-grok-cli keeps history in SQLite rather than JSON, so this adapter is marked
-experimental until validated against a captured real Grok session.
+Cursor stores its chat in a `state.vscdb` SQLite database, and the common Grok
+CLI keeps history in SQLite as well. That raw database is rich: it holds real
+file diffs, reasoning, rejected edits, and attached-file context. TreeTrace
+deliberately does not read it, because the zero-runtime-dependency promise is a
+feature, not an accident. Nothing extra to install, a smaller supply-chain and
+attack surface, and a tool that a privacy-conscious or security team can audit in
+one sitting matter more right now than the extra signal. Adding an optional
+SQLite reader is a future option we are choosing not to take yet.
+
+So the Cursor adapter ingests an exported chat JSON instead. Export your Cursor
+chat to JSON first (for example with a community Cursor chat exporter), then run
+`treetrace --from cursor --file your-chat.json`. The Grok adapter targets the
+exported conversation JSON used by Grok CLI tools (the xAI OpenAI-compatible
+`role` / `content` message shape); it stays experimental until validated against
+a captured real Grok session.
 
 ## Schema
 
