@@ -8,23 +8,38 @@ import { scanText, resolveFindings, applyDecisions, shadowScan } from './redact.
 import { renderMarkdown } from './render-md.js';
 import { renderJson } from './render-json.js';
 import { renderHandoff } from './handoff.js';
+import { renderReportMarkdown, renderTerminalSummary } from './report.js';
+import {
+  analyzeTree,
+  renderFailuresJson,
+  renderLessonsMarkdown,
+  renderEvalsJsonl,
+  renderMemoryMarkdown,
+} from './analyze.js';
 import { makeTitle } from './extract.js';
 import { c, plural, truncate } from './util.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
-const HELP = `treetrace — turn AI coding sessions into a shareable PROMPT_TREE.md
+const HELP = `TreeTrace - turn AI coding sessions into regression-ready prompt lineage
 
 Usage:
   treetrace                     auto-discover Claude Code sessions for this directory
   treetrace --file <path>...    parse specific transcript files (.jsonl or plain text)
   treetrace --stdin             read a pasted transcript from stdin
+  treetrace --report            write all artifacts and print the human report
   treetrace --handoff           print an agent-ready handoff brief to stdout
+  treetrace --failures          write and print failure-analysis JSON
+  treetrace --lessons           write and print lessons Markdown
+  treetrace --evals             write and print eval JSONL
+  treetrace --memory            write and print compact agent memory
 
 Options:
   --dir <path>          project directory to trace (default: cwd)
   --out <file>          markdown output path (default: PROMPT_TREE.md)
+  --report-file <file>  human report output path (default: TREETRACE_REPORT.md)
   --json                also print lineage JSON to stdout
+  --analysis            write failure, lesson, eval, and memory artifacts
   --titles-only         omit full prompt texts from the markdown tree
   --redact-auto         redact every detected secret without prompting
   --since <YYYY-MM-DD>  only include sessions active on/after this date
@@ -33,7 +48,7 @@ Options:
 
 Every export passes a redaction gate: detected secrets must be resolved
 (redact/keep/edit) before anything is written. Outside a terminal, every
-hit is redacted automatically — treetrace fails closed.`;
+hit is redacted automatically - treetrace fails closed.`;
 
 export async function main(argv) {
   const opts = parseArgs(argv);
@@ -119,6 +134,7 @@ export async function main(argv) {
     node.text = applyDecisions(node.text, findings, decisions);
     if (node.text !== before) node.title = makeTitle(node.text);
   }
+  analyzeTree(tree);
 
   // ---- render ----
   const generatedAt = new Date().toISOString();
@@ -135,26 +151,88 @@ export async function main(argv) {
   const md = renderMarkdown(tree, renderOpts);
   const json = renderJson(tree, renderOpts);
   const jsonText = JSON.stringify(json, null, 2);
+  const artifacts = analysisArtifacts(ttDir, tree, renderOpts);
+  const outPath = resolve(projectDir, opts.out || 'PROMPT_TREE.md');
+  const reportPath = resolve(projectDir, opts.reportFile || 'TREETRACE_REPORT.md');
+  const report = renderReportMarkdown(tree, renderOpts);
+
+  const requested = requestedArtifacts(opts, artifacts);
+  if (requested.length) {
+    for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
+    mkdirSync(ttDir, { recursive: true });
+    for (const artifact of requested) writeFileSync(artifact.path, artifact.text);
+    writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+    if (requested.length === 1) {
+      process.stdout.write(requested[0].text);
+    } else {
+      process.stdout.write(requested.map((a) => `# ${a.label}\n\n${a.text}`).join('\n'));
+    }
+    log(c.green(`wrote ${requested.map((a) => relativeish(a.path, projectDir)).join(', ')}`));
+    return;
+  }
 
   assertClean(md, decisions, 'PROMPT_TREE.md');
   assertClean(jsonText, decisions, 'tree.json');
+  for (const artifact of Object.values(artifacts)) assertClean(artifact.text, decisions, artifact.label);
+  assertClean(report, decisions, 'TREETRACE_REPORT.md');
 
-  const outPath = resolve(projectDir, opts.out || 'PROMPT_TREE.md');
   writeFileSync(outPath, md);
+  writeFileSync(reportPath, report);
   mkdirSync(ttDir, { recursive: true });
   writeFileSync(join(ttDir, 'tree.json'), jsonText);
-  // decisions file stores only hashes + actions — safe to keep, never secrets
+  for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
+  // decisions file stores only hashes + actions - safe to keep, never secrets
   writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
 
   if (opts.json) process.stdout.write(jsonText + '\n');
+  if (opts.report) process.stdout.write(report);
 
   // ---- terminal summary ----
   log('');
   log(summaryLine(tree.stats, projectName));
+  log(renderTerminalSummary(tree, renderOpts).trimEnd());
   previewTree(tree, log);
   log('');
-  log(`${c.green('✓')} wrote ${c.bold(relativeish(outPath, projectDir))} and .treetrace/tree.json`);
+  log(
+    `${c.green('ok')} wrote ${c.bold(relativeish(reportPath, projectDir))}, ${c.bold(relativeish(outPath, projectDir))}, .treetrace/tree.json, and analysis artifacts`
+  );
+  if (!opts.report) log(c.dim('  run `treetrace --report` to print the human report in this terminal'));
   if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
+}
+
+function analysisArtifacts(ttDir, tree, renderOpts) {
+  return {
+    failures: {
+      label: 'failures.json',
+      path: join(ttDir, 'failures.json'),
+      text: JSON.stringify(renderFailuresJson(tree, renderOpts), null, 2),
+    },
+    lessons: {
+      label: 'lessons.md',
+      path: join(ttDir, 'lessons.md'),
+      text: renderLessonsMarkdown(tree, renderOpts),
+    },
+    evals: {
+      label: 'evals.jsonl',
+      path: join(ttDir, 'evals.jsonl'),
+      text: renderEvalsJsonl(tree, renderOpts),
+    },
+    memory: {
+      label: 'agent-memory.md',
+      path: join(ttDir, 'agent-memory.md'),
+      text: renderMemoryMarkdown(tree, renderOpts),
+    },
+  };
+}
+
+function requestedArtifacts(opts, artifacts) {
+  const requested = [];
+  if (opts.failures) requested.push(artifacts.failures);
+  if (opts.lessons) requested.push(artifacts.lessons);
+  if (opts.evals) requested.push(artifacts.evals);
+  if (opts.memory) requested.push(artifacts.memory);
+  if (opts.analysis && !requested.length) requested.push(...Object.values(artifacts));
+  return requested;
 }
 
 function assertClean(rendered, decisions, label) {
@@ -234,8 +312,14 @@ function parseArgs(argv) {
   const opts = {
     files: [],
     stdin: false,
+    report: false,
     handoff: false,
     json: false,
+    analysis: false,
+    failures: false,
+    lessons: false,
+    evals: false,
+    memory: false,
     titlesOnly: false,
     redactAuto: false,
     quiet: false,
@@ -243,6 +327,7 @@ function parseArgs(argv) {
     version: false,
     dir: null,
     out: null,
+    reportFile: null,
     since: null,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -252,8 +337,14 @@ function parseArgs(argv) {
         while (argv[i + 1] && !argv[i + 1].startsWith('--')) opts.files.push(argv[++i]);
         break;
       case '--stdin': opts.stdin = true; break;
+      case '--report': opts.report = true; break;
       case '--handoff': opts.handoff = true; break;
       case '--json': opts.json = true; break;
+      case '--analysis': opts.analysis = true; break;
+      case '--failures': opts.failures = true; break;
+      case '--lessons': opts.lessons = true; break;
+      case '--evals': opts.evals = true; break;
+      case '--memory': opts.memory = true; break;
       case '--titles-only': opts.titlesOnly = true; break;
       case '--redact-auto': opts.redactAuto = true; break;
       case '--quiet': opts.quiet = true; break;
@@ -261,6 +352,7 @@ function parseArgs(argv) {
       case '--version': case '-v': opts.version = true; break;
       case '--dir': opts.dir = argv[++i]; break;
       case '--out': opts.out = argv[++i]; break;
+      case '--report-file': opts.reportFile = argv[++i]; break;
       case '--since': opts.since = argv[++i]; break;
       default:
         throw new Error(`unknown option ${a} (try --help)`);

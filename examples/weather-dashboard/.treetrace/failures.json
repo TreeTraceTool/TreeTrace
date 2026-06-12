@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "0.2",
+  "project": {
+    "name": "weather-dashboard",
+    "generatedAt": "2026-06-12T02:37:21.277Z"
+  },
+  "summary": {
+    "totalFailureSignals": 1,
+    "topFailureTypes": [
+      {
+        "type": "overbuilt_solution",
+        "count": 1
+      }
+    ],
+    "correctionChains": 1,
+    "evalCandidates": 1,
+    "lessons": 1
+  },
+  "failures": [
+    {
+      "id": "failure_001",
+      "type": "overbuilt_solution",
+      "confidence": 0.78,
+      "firstSeenNodeId": "node_002",
+      "correctedByNodeId": "node_003",
+      "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\".",
+      "evidence": "User said: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "lesson": "Future agents should prefer the smallest implementation that satisfies the corrected product direction. Evidence: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "evalCandidate": true
+    }
+  ],
+  "correctionChains": [
+    {
+      "id": "chain_001",
+      "failureNodeId": "node_002",
+      "correctionNodeId": "node_003",
+      "resolvedNodeId": "node_004",
+      "failureType": "overbuilt_solution",
+      "confidence": "medium",
+      "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\"."
+    }
+  ]
+}

@@ -1,5 +1,5 @@
-name: 'treetrace'
-description: 'Generate or refresh PROMPT_TREE.md — the prompt lineage of this repository — from committed treetrace lineage data.'
+name: 'TreeTrace'
+description: 'Generate local prompt-lineage, human report, failure-analysis, eval, memory, and PROMPT_TREE.md artifacts.'
 author: 'Zion Boggan'
 branding:
   icon: 'git-branch'
@@ -34,7 +34,7 @@ runs:
           node -e "
             const { readFileSync, writeFileSync } = require('fs');
             const data = JSON.parse(readFileSync('.treetrace/tree.json','utf8'));
-            console.log('lineage present:', data.nodes.length, 'nodes — PROMPT_TREE.md should be committed alongside it');
+            console.log('lineage present:', data.nodes.length, 'nodes — TREETRACE_REPORT.md and PROMPT_TREE.md should be committed alongside it');
           "
         else
           echo "::warning::No source transcript or .treetrace/tree.json found — nothing to do."
@@ -46,9 +46,18 @@ runs:
         GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        if [ -f PROMPT_TREE.md ]; then
+        if [ -f TREETRACE_REPORT.md ]; then
           {
-            echo "### 🌳 Prompt tree"
+            echo "### TreeTrace report"
+            echo ""
+            head -c 4000 TREETRACE_REPORT.md
+            echo ""
+            echo "_Full report: TREETRACE_REPORT.md_"
+          } > /tmp/tt-comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/tt-comment.md
+        elif [ -f PROMPT_TREE.md ]; then
+          {
+            echo "### Prompt tree"
             echo ""
             head -c 4000 PROMPT_TREE.md
             echo ""
