@@ -2,6 +2,8 @@ import {
   newSession,
   finalizeSession,
   pushTurn,
+  addAction,
+  addThinking,
   flattenParts,
   looksSynthetic,
   readJsonl,
@@ -27,6 +29,7 @@ export function parseCodex(text, path, sessionId) {
   const session = newSession(path, sessionId);
   const records = readJsonl(text);
   let turn = 0;
+  let currentModel = null;
 
   for (const rec of records) {
     const ts = rec.timestamp || null;
@@ -55,6 +58,17 @@ export function parseCodex(text, path, sessionId) {
       session.stats.toolUses++;
       const file = filePathFromArgs(payload.arguments);
       if (file) session.stats.filesTouched.add(file);
+      addAction(session, {
+        tool: payload.name || null,
+        file: file || null,
+        command: commandFromArgs(payload.name, payload.arguments),
+        model: currentModel,
+      });
+      continue;
+    }
+
+    if (rec.type === 'response_item' && payload.type === 'reasoning') {
+      addThinking(session);
       continue;
     }
 
@@ -69,10 +83,25 @@ export function parseCodex(text, path, sessionId) {
 
     if (rec.type === 'turn_context' && payload.model) {
       session.stats.models.add(payload.model);
+      currentModel = payload.model;
     }
   }
 
   return finalizeSession(session);
+}
+
+function commandFromArgs(name, args) {
+  if (!/exec|shell|bash|run|terminal|command/i.test(name || '')) return null;
+  if (!args || typeof args !== 'string') return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(args);
+  } catch {
+    return null;
+  }
+  const cmd = parsed.command || parsed.cmd;
+  if (Array.isArray(cmd)) return cmd.join(' ');
+  return typeof cmd === 'string' ? cmd : null;
 }
 
 function filePathFromArgs(args) {

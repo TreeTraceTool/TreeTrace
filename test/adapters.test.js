@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { adaptFrom, autoAdapt, TOOLS } from '../src/adapters/index.js';
 import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
+import { analyzeTree } from '../src/analyze.js';
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'adapters');
 const fx = (name) => join(DIR, name);
@@ -134,4 +135,30 @@ test('adapter output flows through the full classify/tree pipeline', () => {
 test('adaptFrom rejects an unknown tool name', () => {
   assert.throws(() => adaptFrom('notatool', '{}', 'x.json'), /unknown/);
   assert.ok(TOOLS.includes('codex') && TOOLS.includes('cursor'));
+});
+
+test('codex import emits actions that drive a verified security signal and model attribution', () => {
+  const jsonl = [
+    { type: 'session_meta', timestamp: '2026-06-12T10:00:00Z', payload: { id: 'cdx1', originator: 'codex_cli_rs', cwd: '/repo', cli_version: '0.139.0' } },
+    { type: 'turn_context', timestamp: '2026-06-12T10:00:01Z', payload: { model: 'gpt-5.5', cwd: '/repo' } },
+    { type: 'response_item', timestamp: '2026-06-12T10:00:02Z', payload: { type: 'message', role: 'user', content: [{ type: 'text', text: 'Add rate limiting to the checkout endpoint' }] } },
+    { type: 'response_item', timestamp: '2026-06-12T10:00:03Z', payload: { type: 'reasoning', summary: [] } },
+    { type: 'response_item', timestamp: '2026-06-12T10:00:05Z', payload: { type: 'function_call', name: 'apply_patch', arguments: JSON.stringify({ path: 'src/auth/session.ts' }), call_id: 'c1' } },
+    { type: 'response_item', timestamp: '2026-06-12T10:00:06Z', payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Edited session.ts' }] } },
+  ].map((r) => JSON.stringify(r)).join('\n');
+
+  const sessions = adaptFrom('codex', jsonl, fx('codex-synth.jsonl'));
+  const s = sessions[0];
+  assert.equal(s.prompts[0].actions.length, 1);
+  assert.equal(s.prompts[0].actions[0].file, 'src/auth/session.ts');
+  assert.equal(s.prompts[0].actions[0].model, 'gpt-5.5');
+  assert.equal(s.prompts[0].thinking, 1);
+
+  const { tree } = pipeline(sessions);
+  const analysis = analyzeTree(tree);
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified');
+  assert.ok(sec, 'a codex import should now produce a verified security signal');
+  assert.equal(sec.model, 'gpt-5.5');
+  assert.deepEqual(analysis.summary.models, ['gpt-5.5']);
+  assert.ok(analysis.summary.thinkingBlocks >= 1);
 });

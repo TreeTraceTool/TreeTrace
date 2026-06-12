@@ -53,7 +53,7 @@ export function pushTurn(session, idx, text, ts, { hasImage = false, hadToolResu
   session.leafUuid = uuid;
   session._lastUserUuid = uuid;
   session.stats.userLines++;
-  session.prompts.push({
+  const prompt = {
     uuid,
     parentUuid,
     ts: ts || null,
@@ -61,9 +61,21 @@ export function pushTurn(session, idx, text, ts, { hasImage = false, hadToolResu
     hasImage,
     hadToolResultContext,
     afterInterruption: false,
-  });
+    actions: [],
+    thinking: 0,
+  };
+  session.prompts.push(prompt);
+  session._currentPrompt = prompt;
   noteTimestamp(session, ts);
   return uuid;
+}
+
+export function addAction(session, action) {
+  if (session._currentPrompt && action) session._currentPrompt.actions.push(action);
+}
+
+export function addThinking(session, n = 1) {
+  if (session._currentPrompt) session._currentPrompt.thinking += n;
 }
 
 export function flattenParts(parts) {
