@@ -1,4 +1,4 @@
-import { truncate, plural, formatDay, mdEscapePipe } from './util.js';
+import { truncate, plural, formatDay, mdEscapePipe, escapeMd } from './util.js';
 import { REPO_URL } from './config.js';
 
 const ICONS = {
@@ -17,7 +17,7 @@ export function renderMarkdown(tree, opts = {}) {
   const { stats, roots, nodes, sessions } = tree;
   const lines = [];
 
-  lines.push(`# 🌳 Prompt Tree: ${projectName}`);
+  lines.push(`# 🌳 Prompt Tree: ${escapeMd(projectName)}`);
   lines.push('');
   lines.push(`> ${banner(stats)}`);
   lines.push('>');
@@ -52,7 +52,7 @@ export function renderMarkdown(tree, opts = {}) {
     active.forEach((s, i) => {
       lines.push(
         `| ${i + 1} | ${formatDay(s.firstTs) || ''} | ${s.prompts.length} | ${mdEscapePipe(
-          s.title || s.sessionId || ''
+          escapeMd(s.title || s.sessionId || '')
         )} |`
       );
     });
@@ -70,7 +70,7 @@ export function renderMarkdown(tree, opts = {}) {
       lines.push(`**${plural(abandoned.length, 'abandoned branch', 'abandoned branches')}:**`);
       lines.push('');
       for (const n of abandoned) {
-        lines.push(`- ✗ ${truncate(n.title, 110)}`);
+        lines.push(`- ✗ ${escapeMd(truncate(n.title, 110))}`);
       }
       lines.push('');
     }
@@ -78,7 +78,7 @@ export function renderMarkdown(tree, opts = {}) {
       lines.push(`**${plural(corrections.length, 'correction')} along the way:**`);
       lines.push('');
       for (const n of corrections) {
-        lines.push(`- ↩ ${truncate(n.title, 110)}`);
+        lines.push(`- ↩ ${escapeMd(truncate(n.title, 110))}`);
       }
       lines.push('');
     }
@@ -90,9 +90,11 @@ export function renderMarkdown(tree, opts = {}) {
     'A distilled, replayable version of the accepted path. Paste into a fresh agent to rebuild something like this:'
   );
   lines.push('');
-  lines.push('```text');
-  lines.push(promptPack(nodes));
-  lines.push('```');
+  const pack = promptPack(nodes);
+  const fence = '`'.repeat(Math.max(3, longestRun(pack, '`') + 1));
+  lines.push(`${fence}text`);
+  lines.push(pack);
+  lines.push(fence);
   lines.push('');
 
   lines.push('---');
@@ -140,7 +142,8 @@ function emitNode(node, depth, lines, { titlesOnly }) {
   const indent = '  '.repeat(depth);
   const icon = ICONS[node.kind] || '→';
   const dead = node.status === 'abandoned';
-  const title = dead ? `~~${node.title}~~ ✗` : node.kind === 'root' ? `**${node.title}**` : node.title;
+  const safe = escapeMd(node.title);
+  const title = dead ? `~~${safe}~~ ✗` : node.kind === 'root' ? `**${safe}**` : safe;
   const session = node.sessionBoundary ? ` ${dim(`(new session${node.ts ? `, ${formatDay(node.ts)}` : ''})`)}` : '';
   const nudges = node.nudges > 1 ? ` ${dim(`(+${node.nudges} nudges)`)}` : '';
   const reruns = node.reruns ? ` ${dim(`(re-issued ×${node.reruns + 1})`)}` : '';
@@ -167,8 +170,8 @@ function blockquote(text, indent = '') {
 }
 
 function clip(text, max) {
-  if (text.length <= max) return text;
-  return `${text.slice(0, max).trimEnd()}\n\n*[...trimmed, ${text.length - max} more chars]*`;
+  if (text.length <= max) return escapeMd(text);
+  return `${escapeMd(text.slice(0, max).trimEnd())}\n\n*[...trimmed, ${text.length - max} more chars]*`;
 }
 
 export function promptPack(nodes) {
@@ -191,4 +194,13 @@ export function promptPack(nodes) {
 
 function condense(text, max = 420) {
   return truncate(text.replace(/\s+/g, ' '), max);
+}
+
+function longestRun(text, ch) {
+  let max = 0;
+  let cur = 0;
+  for (const c of text) {
+    if (c === ch) { cur++; if (cur > max) max = cur; } else cur = 0;
+  }
+  return max;
 }

@@ -1,7 +1,7 @@
 import { analyzeTree, renderLessonsMarkdown, renderMemoryMarkdown } from './analyze.js';
 import { renderHandoff } from './handoff.js';
 import { renderMarkdown } from './render-md.js';
-import { plural, truncate } from './util.js';
+import { plural, truncate, escapeMd } from './util.js';
 import { REPO_URL } from './config.js';
 
 export function renderReportMarkdown(tree, opts = {}) {
@@ -10,7 +10,7 @@ export function renderReportMarkdown(tree, opts = {}) {
   const analysis = analyzeTree(tree);
   const lines = [];
 
-  lines.push(`# TreeTrace Report - ${projectName}`);
+  lines.push(`# TreeTrace Report - ${escapeMd(projectName)}`);
   lines.push('');
   lines.push(`Generated: ${generatedAt}`);
   lines.push('');
@@ -63,7 +63,7 @@ export function renderReportMarkdown(tree, opts = {}) {
     }
     lines.push('');
     for (const failure of analysis.failures.slice(0, 8)) {
-      lines.push(`- ${failure.id} (${failure.type}, ${confidencePct(failure.confidence)}): ${failure.summary}`);
+      lines.push(`- ${failure.id} (${failure.type}, ${confidencePct(failure.confidence)}): ${escapeMd(failure.summary)}`);
     }
     if (analysis.failures.length > 8) {
       lines.push(`- ... ${analysis.failures.length - 8} more in .treetrace/failures.json`);

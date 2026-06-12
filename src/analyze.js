@@ -1,4 +1,4 @@
-import { truncate } from './util.js';
+import { truncate, escapeMd } from './util.js';
 
 const FAILURE_TYPES = new Set([
   'ignored_constraint',
@@ -217,9 +217,9 @@ export function renderLessonsMarkdown(tree, opts = {}) {
     return lines.join('\n');
   }
   analysis.lessons.forEach((lesson, i) => {
-    lines.push(`## ${i + 1}. ${lesson.title}`);
+    lines.push(`## ${i + 1}. ${escapeMd(lesson.title)}`);
     lines.push('');
-    lines.push(lesson.text);
+    lines.push(escapeMd(lesson.text));
     lines.push('');
     lines.push(`Source nodes: ${lesson.nodeIds.join(', ')}`);
     lines.push('');
@@ -237,13 +237,13 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   const projectName = opts.projectName || 'this project';
   const nodes = tree.nodes || [];
   const live = (n) => n.status !== 'abandoned';
-  const lines = [`# TreeTrace Agent Memory`, '', `Project: ${projectName}`, ''];
+  const lines = [`# TreeTrace Agent Memory`, '', `Project: ${escapeMd(projectName)}`, ''];
 
   lines.push('## Constraints the user enforced');
   lines.push('');
   const constraints = nodes.filter((n) => live(n) && (n.kind === 'correction' || n.kind === 'scope-change'));
   if (constraints.length) {
-    for (const n of constraints.slice(0, 8)) lines.push(`- ${truncate(n.title, 140)}`);
+    for (const n of constraints.slice(0, 8)) lines.push(`- ${escapeMd(truncate(n.title, 140))}`);
   } else {
     lines.push('- No explicit constraints were flagged. Follow the accepted decisions in the handoff brief.');
   }
@@ -252,7 +252,7 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   lines.push('## Lessons from this lineage');
   lines.push('');
   if (analysis.lessons.length) {
-    for (const lesson of analysis.lessons.slice(0, 8)) lines.push(`- ${lesson.text}`);
+    for (const lesson of analysis.lessons.slice(0, 8)) lines.push(`- ${escapeMd(lesson.text)}`);
   } else {
     lines.push('- No high-confidence failure lessons were detected yet.');
   }
@@ -262,7 +262,7 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   lines.push('');
   const badPaths = analysis.failures.filter((f) => f.type === 'abandoned_path').slice(0, 6);
   if (badPaths.length) {
-    for (const failure of badPaths) lines.push(`- ${failure.summary}`);
+    for (const failure of badPaths) lines.push(`- ${escapeMd(failure.summary)}`);
   } else {
     lines.push('- No abandoned paths were detected in this session.');
   }
@@ -272,9 +272,9 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   lines.push('');
   const accepted = nodes.filter((n) => live(n) && (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change'));
   const latest = accepted[accepted.length - 1];
-  if (latest) lines.push(`- Continue the most recent accepted direction: ${truncate(latest.title, 140)}`);
+  if (latest) lines.push(`- Continue the most recent accepted direction: ${escapeMd(truncate(latest.title, 140))}`);
   const openCorrections = nodes.filter((n) => live(n) && n.kind === 'correction').slice(-3);
-  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${truncate(n.title, 120)}`);
+  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${escapeMd(truncate(n.title, 120))}`);
   if (!latest && !openCorrections.length) {
     lines.push('- Continue from the accepted decisions above and confirm scope with the user.');
   }

@@ -72,3 +72,10 @@ export function shannonEntropy(s) {
 export function mdEscapePipe(s) {
   return String(s).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
+
+export function escapeMd(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}

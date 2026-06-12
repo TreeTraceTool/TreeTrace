@@ -22,7 +22,7 @@ import {
 } from '../src/analyze.js';
 import { main } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
-import { sha256 } from '../src/util.js';
+import { sha256, escapeMd } from '../src/util.js';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'synthetic-session.jsonl');
 
@@ -156,6 +156,17 @@ test('redaction: benign text produces no high/medium findings', () => {
     'Refactor the parser in src/parse.js to handle commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a and bump to v2.1.0-beta.3. The README.md needs a section on CONTRIBUTING.';
   const hard = scanText(benign).filter((f) => f.severity !== 'soft');
   assert.deepEqual(hard, []);
+});
+
+test('escapeMd neutralizes HTML-sensitive characters', () => {
+  assert.equal(escapeMd('a<script>b</script>&c>'), 'a&lt;script&gt;b&lt;/script&gt;&amp;c&gt;');
+});
+
+test('rendering escapes injection in project name and content', async () => {
+  const { tree } = await fixtureTree();
+  const md = renderMarkdown(tree, { projectName: 'x</summary></details><script>alert(1)</script>' });
+  assert.ok(md.includes('# 🌳 Prompt Tree: x&lt;/summary&gt;&lt;/details&gt;&lt;script&gt;'), 'project name not escaped');
+  assert.ok(!md.includes('Prompt Tree: x</summary>'), 'raw HTML in project name');
 });
 
 test('renderers: markdown, json, handoff are consistent and footer-credited', async () => {
