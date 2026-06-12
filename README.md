@@ -155,11 +155,11 @@ The strongest identity is:
 
 ## License
 
-GNU Affero General Public License v3.0 only (AGPL-3.0-only).
+Apache License 2.0 (Apache-2.0).
 
 Copyright 2026 Zion Boggan.
 
-You may use, study, share, and modify TreeTrace under the terms of the AGPL version 3. If you run a modified version as a network service, you must offer its users the corresponding source. See [LICENSE](LICENSE).
+You may use, modify, and distribute TreeTrace for any purpose, including commercial use, and the license includes an explicit patent grant. See [LICENSE](LICENSE) for the full terms.
 
 ---
 

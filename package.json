@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Turn AI coding sessions into regression-ready prompt lineage, failure analysis, eval cases, and handoff memory.",
   "keywords": [
     "claude-code",
@@ -15,7 +15,7 @@
     "regression",
     "memory"
   ],
-  "license": "AGPL-3.0-only",
+  "license": "Apache-2.0",
   "author": "Zion Boggan",
   "type": "module",
   "bin": {
