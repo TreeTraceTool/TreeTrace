@@ -189,7 +189,8 @@ test('analysis renderers produce failures, lessons, evals, and memory', async ()
 
   const memory = renderMemoryMarkdown(tree, { projectName: 'demo' });
   assert.ok(memory.includes('TreeTrace Agent Memory'));
-  assert.ok(memory.includes('Durable project constraints'));
+  assert.ok(memory.includes('Constraints the user enforced'));
+  assert.ok(!memory.includes('Keep TreeTrace local-first'));
 });
 
 test('analysis: tiny transcript without corrections does not invent failures', () => {

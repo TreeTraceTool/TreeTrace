@@ -235,16 +235,20 @@ export function renderEvalsJsonl(tree) {
 export function renderMemoryMarkdown(tree, opts = {}) {
   const analysis = analyzeTree(tree);
   const projectName = opts.projectName || 'this project';
-  const lines = [`# TreeTrace Agent Memory`, ''];
-  lines.push(`Project: ${projectName}`);
+  const nodes = tree.nodes || [];
+  const live = (n) => n.status !== 'abandoned';
+  const lines = [`# TreeTrace Agent Memory`, '', `Project: ${projectName}`, ''];
+
+  lines.push('## Constraints the user enforced');
   lines.push('');
-  lines.push('## Durable project constraints');
+  const constraints = nodes.filter((n) => live(n) && (n.kind === 'correction' || n.kind === 'scope-change'));
+  if (constraints.length) {
+    for (const n of constraints.slice(0, 8)) lines.push(`- ${truncate(n.title, 140)}`);
+  } else {
+    lines.push('- No explicit constraints were flagged. Follow the accepted decisions in the handoff brief.');
+  }
   lines.push('');
-  lines.push('- Keep the project local-first and privacy-first.');
-  lines.push('- Treat the structured outputs as the core product.');
-  lines.push('- Keep the human-readable report as one artifact among several.');
-  lines.push('');
-  lines.push('');
+
   lines.push('## Lessons from this lineage');
   lines.push('');
   if (analysis.lessons.length) {
@@ -253,22 +257,29 @@ export function renderMemoryMarkdown(tree, opts = {}) {
     lines.push('- No high-confidence failure lessons were detected yet.');
   }
   lines.push('');
+
   lines.push('## Known bad paths');
   lines.push('');
   const badPaths = analysis.failures.filter((f) => f.type === 'abandoned_path').slice(0, 6);
   if (badPaths.length) {
     for (const failure of badPaths) lines.push(`- ${failure.summary}`);
   } else {
-    lines.push('');
-    lines.push('- Do not narrow the project to only a README generator.');
+    lines.push('- No abandoned paths were detected in this session.');
   }
   lines.push('');
+
   lines.push('## Preferred next work');
   lines.push('');
-  lines.push('- Improve the failure-signal heuristics with real fixtures.');
-  lines.push('- Add a compare mode for baseline and candidate exports.');
+  const accepted = nodes.filter((n) => live(n) && (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change'));
+  const latest = accepted[accepted.length - 1];
+  if (latest) lines.push(`- Continue the most recent accepted direction: ${truncate(latest.title, 140)}`);
+  const openCorrections = nodes.filter((n) => live(n) && n.kind === 'correction').slice(-3);
+  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${truncate(n.title, 120)}`);
+  if (!latest && !openCorrections.length) {
+    lines.push('- Continue from the accepted decisions above and confirm scope with the user.');
+  }
   lines.push('');
-  lines.push('');
+
   return lines.join('\n');
 }
 
