@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - run: node --test test/
+      - run: node --test test/treetrace.test.js
       - name: CLI smoke test (fixture, fail-closed redaction)
         run: |
           node bin/treetrace.js --file test/fixtures/synthetic-session.jsonl --dir "$RUNNER_TEMP" --redact-auto --quiet

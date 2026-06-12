@@ -1,7 +1,8 @@
 import { REPO_URL } from './config.js';
+import { analyzeTree } from './analyze.js';
 
 /**
- * Machine-readable export: treetrace lineage schema v0.1.
+ * Machine-readable export: TreeTrace lineage schema v0.2.
  * Documented in SCHEMA.md with a mapping to the Agent Trace RFC.
  */
 
@@ -17,9 +18,10 @@ const RELATIONSHIP_BY_KIND = {
 export function renderJson(tree, opts = {}) {
   const { projectName, generatedBy = 'treetrace', version = '0.1.0' } = opts;
   const { nodes, sessions, stats } = tree;
+  const analysis = analyzeTree(tree);
 
   return {
-    schemaVersion: '0.1',
+    schemaVersion: '0.2',
     generator: { name: generatedBy, version, url: REPO_URL },
     project: {
       name: projectName,
@@ -39,6 +41,12 @@ export function renderJson(tree, opts = {}) {
       models: stats.models,
       firstTs: stats.firstTs,
       lastTs: stats.lastTs,
+    },
+    analysis: {
+      failureSignals: analysis.summary.totalFailureSignals,
+      correctionChains: analysis.summary.correctionChains,
+      evalCandidates: analysis.summary.evalCandidates,
+      lessons: analysis.summary.lessons,
     },
     sessions: sessions
       .filter((s) => s.prompts.length)
@@ -62,6 +70,9 @@ export function renderJson(tree, opts = {}) {
       reruns: n.reruns || 0,
       session: n.sessionId,
       timestamp: n.ts,
+      failureSignals: n.failureSignals || [],
+      evalCandidate: Boolean(n.evalCandidate),
+      lessonIds: n.lessonIds || [],
       // source linkage for audit: the original record uuid inside the local
       // session transcript (raw transcripts themselves are never exported)
       sourceEventIds: n.uuid ? [n.uuid] : [],
@@ -73,5 +84,8 @@ export function renderJson(tree, opts = {}) {
         to: n.id,
         relationship: RELATIONSHIP_BY_KIND[n.kind] || 'refines',
       })),
+    correctionChains: analysis.correctionChains,
+    lessons: analysis.lessons,
+    evalCandidates: analysis.evalCandidates,
   };
 }

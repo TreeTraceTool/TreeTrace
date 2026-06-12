@@ -37,9 +37,9 @@ export const RULES = [
 
   // ---- medium: context-dependent assignments ----
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
-  { id: 'url-basic-auth', severity: 'medium', re: /[a-z][a-z0-9+.-]*:\/\/[^/\s:@'"`]{2,}:[^/\s:@'"`]{2,}@[^\s'"`]+/gi },
+  { id: 'url-basic-auth', severity: 'medium', re: /[a-z][a-z0-9+.-]*:\/\/[^/\s:@'"`]{2,}:[^/\s@'"`]{2,}@[^\s'"`]+/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
-  { id: 'secret-assignment', severity: 'medium', re: /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*['"]?(?!\$\{|<|%|\*{3}|\.{3}|REDACTED|xxx+|placeholder|changeme|example|your[-_])[^\s'"`,;]{8,}/gi },
+  { id: 'secret-assignment', severity: 'medium', re: /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*(?!(?:['"]?\s*)?(?:\$\{|<|%|\*{3}|\.{3}|REDACTED|xxx+|placeholder|changeme|example|your[-_]))(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s'"`,;]{8,})/gi },
 
   // ---- soft: PII and context the user may want to keep ----
   { id: 'email', severity: 'soft', re: /\b[A-Za-z0-9._%+-]+@(?!(?:users\.noreply\.github\.com|example\.(?:com|org)))[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
@@ -50,6 +50,24 @@ export const RULES = [
 const HEX_RE = /^[0-9a-fA-F]+$/;
 const ENTROPY_CANDIDATE_RE = /\b[A-Za-z0-9+/_=-]{32,}\b/g;
 const VERSION_LIKE_RE = /^\d+[.\d-]*$/;
+const JOIN_SEPARATOR_RE = /[\s\u200B-\u200D\uFEFF]/;
+const JOINED_SCAN_RULE_IDS = new Set([
+  'aws-access-key',
+  'github-token',
+  'github-fine-grained',
+  'gitlab-token',
+  'anthropic-key',
+  'openai-key',
+  'slack-token',
+  'stripe-live-key',
+  'npm-token',
+  'tailscale-key',
+  'google-api-key',
+  'sendgrid-key',
+  'twilio-key',
+  'telegram-bot-token',
+  'jwt',
+]);
 
 export function scanText(text) {
   const findings = [];
@@ -82,6 +100,38 @@ export function scanText(text) {
     findings.push({ ruleId: 'high-entropy-token', severity: 'medium', match: tok, index: start });
   }
 
+  findings.push(...scanJoinedProviderTokens(text, findings));
+  return findings;
+}
+
+function scanJoinedProviderTokens(text, existing) {
+  const chars = [];
+  const indexMap = [];
+  for (let i = 0; i < text.length; i++) {
+    if (JOIN_SEPARATOR_RE.test(text[i])) continue;
+    chars.push(text[i]);
+    indexMap.push(i);
+  }
+  if (chars.length === text.length) return [];
+
+  const joined = chars.join('');
+  const existingSpans = existing.map((f) => [f.index, f.index + f.match.length]);
+  const findings = [];
+  for (const rule of RULES) {
+    if (!JOINED_SCAN_RULE_IDS.has(rule.id)) continue;
+    rule.re.lastIndex = 0;
+    let m;
+    while ((m = rule.re.exec(joined)) !== null) {
+      const start = indexMap[m.index];
+      const end = indexMap[m.index + m[0].length - 1] + 1;
+      const original = text.slice(start, end);
+      if (!JOIN_SEPARATOR_RE.test(original)) continue;
+      if (original.length - m[0].length > 20) continue;
+      if (existingSpans.some(([s, e]) => start >= s && start < e)) continue;
+      findings.push({ ruleId: rule.id, severity: rule.severity, match: original, index: start });
+      if (m.index === rule.re.lastIndex) rule.re.lastIndex++;
+    }
+  }
   return findings;
 }
 

@@ -1,4 +1,5 @@
 import { truncate } from './util.js';
+import { analyzeTree } from './analyze.js';
 
 /**
  * --handoff: an agent-ready context pack, printed to stdout (and gated by the
@@ -11,6 +12,7 @@ import { truncate } from './util.js';
 export function renderHandoff(tree, opts = {}) {
   const { projectName } = opts;
   const { nodes, stats } = tree;
+  const analysis = analyzeTree(tree);
   const lines = [];
 
   const root = nodes.find((n) => n.kind === 'root') || nodes[0];
@@ -70,6 +72,15 @@ export function renderHandoff(tree, opts = {}) {
     lines.push('These approaches were tried and abandoned — avoid unless told otherwise:');
     lines.push('');
     abandoned.forEach((n) => lines.push(`- ${truncate(n.text.replace(/\s+/g, ' '), 300)}`));
+    lines.push('');
+  }
+
+  if (analysis.lessons.length) {
+    lines.push('## Agent memory lessons');
+    lines.push('');
+    analysis.lessons.slice(0, 6).forEach((lesson) => {
+      lines.push(`- ${truncate(lesson.text.replace(/\s+/g, ' '), 320)}`);
+    });
     lines.push('');
   }
 
