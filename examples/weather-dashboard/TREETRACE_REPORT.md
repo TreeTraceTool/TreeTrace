@@ -48,7 +48,7 @@ You are taking over an AI-assisted project. This brief was distilled from the re
 
 #### Original goal
 
-Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
+Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
 
 #### Where things stand
 
@@ -112,16 +112,16 @@ Source nodes: node_002, node_003, node_004
 
 #### Goal
 
-> Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
+> Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
 
 #### The Path
 
 `⬢` root · `→` direction · `↩` correction · `⚑` scope change · `◆` checkpoint · `?` question · `✗` abandoned
 
-- `⬢` **Build a weather dashboard web app that shows the forecast for Memphis using the NWS API.** <sub>(new session, 2026-06-01)</sub>
+- `⬢` **Build a weather dashboard web app that shows the forecast for Denver using the NWS API.** <sub>(new session, 2026-06-01)</sub>
   <details><summary>full prompt</summary>
 
-  > Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
+  > Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
   </details>
 - `→` Try using leaflet for an interactive radar map layer on top of the forecast.
 - `↩` No, scrap the radar map, it is too heavy.
@@ -146,7 +146,7 @@ Source nodes: node_002, node_003, node_004
 A distilled, replayable version of the accepted path. Paste into a fresh agent to rebuild something like this:
 
 ```text
-1. Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
+1. Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
 2. Try using leaflet for an interactive radar map layer on top of the forecast.
    (constraint learned along the way: No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.)
 3. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
