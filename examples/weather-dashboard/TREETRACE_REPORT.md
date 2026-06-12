@@ -1,6 +1,6 @@
 # TreeTrace Report - weather-dashboard
 
-Generated: 2026-06-12T04:29:00.937Z
+Generated: 2026-06-12T05:59:45.796Z
 
 This is the human-readable rollup. Keep the split `.treetrace/` artifacts for agents, CI, eval harnesses, and other tools.
 
@@ -53,12 +53,12 @@ Build a weather dashboard web app that shows the forecast for Memphis using the 
 #### Where things stand
 
 
-Most recent accepted direction: Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+Most recent accepted direction: Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
 
 #### Accepted decisions (in order)
 
 1. Try using leaflet for an interactive radar map layer on top of the forecast.
-2. Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+2. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
 
 #### Constraints learned the hard way
 
@@ -78,12 +78,10 @@ Confirm you understand the goal, the accepted decisions, and the constraints abo
 
 Project: weather-dashboard
 
-#### Durable project constraints
+#### Constraints the user enforced
 
-- Keep the project local-first and privacy-first.
-- Treat the structured outputs as the core product.
-- Keep the human-readable report as one artifact among several.
-
+- No, scrap the radar map, it is too heavy.
+- Actually wait - also add a settings panel so the user can switch cities.
 
 #### Lessons from this lineage
 
@@ -91,14 +89,12 @@ Project: weather-dashboard
 
 #### Known bad paths
 
-
-- Do not narrow the project to only a README generator.
+- No abandoned paths were detected in this session.
 
 #### Preferred next work
 
-- Improve the failure-signal heuristics with real fixtures.
-- Add a compare mode for baseline and candidate exports.
-
+- Continue the most recent accepted direction: Actually wait - also add a settings panel so the user can switch cities.
+- Keep this correction satisfied: No, scrap the radar map, it is too heavy.
 
 ## Lessons
 
@@ -133,10 +129,10 @@ Source nodes: node_002, node_003, node_004
 
   > No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.
   </details>
-- `⚑` Actually wait — also add a settings panel so the user can switch cities.
+- `⚑` Actually wait - also add a settings panel so the user can switch cities.
   <details><summary>full prompt</summary>
 
-  > Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+  > Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
   </details>
 
 #### Course corrections & dead ends
@@ -153,7 +149,7 @@ A distilled, replayable version of the accepted path. Paste into a fresh agent t
 1. Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
 2. Try using leaflet for an interactive radar map layer on top of the forecast.
    (constraint learned along the way: No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.)
-3. Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+3. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
 ```
 
 ---

@@ -2,12 +2,10 @@
 
 Project: weather-dashboard
 
-## Durable project constraints
+## Constraints the user enforced
 
-- Keep the project local-first and privacy-first.
-- Treat the structured outputs as the core product.
-- Keep the human-readable report as one artifact among several.
-
+- No, scrap the radar map, it is too heavy.
+- Actually wait - also add a settings panel so the user can switch cities.
 
 ## Lessons from this lineage
 
@@ -15,11 +13,9 @@ Project: weather-dashboard
 
 ## Known bad paths
 
-
-- Do not narrow the project to only a README generator.
+- No abandoned paths were detected in this session.
 
 ## Preferred next work
 
-- Improve the failure-signal heuristics with real fixtures.
-- Add a compare mode for baseline and candidate exports.
-
+- Continue the most recent accepted direction: Actually wait - also add a settings panel so the user can switch cities.
+- Keep this correction satisfied: No, scrap the radar map, it is too heavy.

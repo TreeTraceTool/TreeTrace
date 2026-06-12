@@ -7,7 +7,7 @@
   },
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-12T04:29:00.937Z",
+    "generatedAt": "2026-06-12T05:59:45.796Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
@@ -114,8 +114,8 @@
       "parentId": "node_003",
       "role": "user",
       "kind": "scope-change",
-      "title": "Actually wait — also add a settings panel so the user can switch cities.",
-      "text": "Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]",
+      "title": "Actually wait - also add a settings panel so the user can switch cities.",
+      "text": "Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]",
       "status": "accepted",
       "nudges": 0,
       "reruns": 0,
@@ -176,7 +176,7 @@
       "type": "scope_drift_detection",
       "task": "Continue development while preserving the corrected direction from the session lineage.",
       "context": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\".",
-      "input": "Continue development of the project while preserving the corrected direction and constraints.",
+      "input": "Honor this correction and keep building: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
       "expected_behavior": [
         "Use the corrected prompt lineage as durable context",
         "Do not repeat the documented failure mode"

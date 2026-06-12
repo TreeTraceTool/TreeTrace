@@ -23,10 +23,10 @@
 
   > No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.
   </details>
-- `⚑` Actually wait — also add a settings panel so the user can switch cities.
+- `⚑` Actually wait - also add a settings panel so the user can switch cities.
   <details><summary>full prompt</summary>
 
-  > Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+  > Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
   </details>
 
 ## Course corrections & dead ends
@@ -43,7 +43,7 @@ A distilled, replayable version of the accepted path. Paste into a fresh agent t
 1. Build a weather dashboard web app that shows the forecast for Memphis using the NWS API. Keep it a single static page.
 2. Try using leaflet for an interactive radar map layer on top of the forecast.
    (constraint learned along the way: No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.)
-3. Actually wait — also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
+3. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
 ```
 
 ---
