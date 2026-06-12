@@ -1,91 +1,158 @@
-# 🌳 treetrace
+# TreeTrace
 
-**Your repo says what you built. `PROMPT_TREE.md` says how.**
+**Turn AI coding sessions into regression-ready prompt lineage.**
 
-treetrace reads the AI coding sessions already sitting on your disk and turns them into a clean, shareable prompt lineage — the root idea, the directions, the corrections, the dead ends, and the path that shipped.
+TreeTrace reads local AI coding transcripts and extracts the path of human steering: the root goal, direction changes, corrections, abandoned branches, accepted decisions, and the final shipped path.
+
+It then exports:
+
+- `TREETRACE_REPORT.md` as the combined human-readable report
+- `PROMPT_TREE.md` for humans
+- `.treetrace/tree.json` for tools
+- `.treetrace/failures.json` for agent mistake analysis
+- `.treetrace/lessons.md` for reusable correction memory
+- `.treetrace/evals.jsonl` for regression and eval harnesses
+- `.treetrace/agent-memory.md` for future coding agents
+- `treetrace --handoff` for the next agent
 
 ```bash
 cd your-project
 npx treetrace
 ```
 
-Thirty seconds later:
-
-```
-🌳 your-project — 41 prompts · 6 sessions · 9 days · 3 ↩ corrections · 1 ✗ abandoned · 1,204 tool calls
-  ⬢ Build a tool that turns AI chat logs into a prompt tree
-  → Make it agent-agnostic so it works with any transcript
-  ↩ No, scrap the web app — make it a zero-config CLI
-  ⚑ Add a redaction gate so secrets never reach the export
-  ◆ Ship it: README, schema, examples
-
-✓ wrote PROMPT_TREE.md and .treetrace/tree.json
-```
-
-No accounts. No uploads. No config. Your transcripts never leave your machine.
+No accounts. No uploads. No telemetry. Your transcripts never leave your machine.
 
 ## Why
 
-Projects are increasingly built through hundreds of prompts — and that history evaporates into chat logs nobody reopens. The prompt lineage is the **how** of modern software:
+Git history shows what changed. TreeTrace shows how the human had to steer the agent to get there.
 
-- **Show your work.** "Built with AI" invites slop-skepticism; a visible, honest prompt tree is the receipt.
-- **Hand off cleanly.** `treetrace --handoff` distills the lineage into a context pack for the next agent (or the next human): goal, accepted decisions, constraints learned the hard way, known dead ends.
-- **Teach and compare.** The fastest way to get better at directing agents is reading how others do it.
-- **Audit-friendly.** Every node links back to its source event ID in your local transcript.
+AI coding sessions contain the most useful regression data teams have: where the model misunderstood the goal, which correction fixed it, which branch was abandoned, what constraint kept getting ignored, and what should become an eval so the next agent does not repeat the failure.
 
-## What it does
+TreeTrace is the local-first layer between raw chat logs, runtime traces, and code provenance.
 
-1. **Discovers** Claude Code session files for your project (`~/.claude/projects/...`) — or imports any transcript via `--file` / `--stdin`.
-2. **Extracts** the meaningful human prompts; tool noise, slash commands, "continue" nudges, and subagent chatter are filtered or folded.
-3. **Classifies** each prompt: `⬢` root · `→` direction · `↩` correction · `⚑` scope change · `◆` checkpoint — and detects genuinely abandoned branches (`✗`) from real rewind topology, not guesswork.
-4. **Gates** every export behind a secret scan. Nothing is written until each hit is resolved (`redact` / `keep` / `edit`). Outside a TTY, every hit is auto-redacted — treetrace **fails closed**.
-5. **Exports** `PROMPT_TREE.md` (for humans, GitHub-ready), `.treetrace/tree.json` (open schema, [SCHEMA.md](SCHEMA.md)), and `--handoff` briefs (for agents).
+## What It Does
 
-## The redaction gate
+1. **Discovers local transcripts.** Claude Code session files are found automatically from `~/.claude/projects/...`; plain transcripts can be imported with `--file` or `--stdin`.
+2. **Extracts prompt lineage.** Tool noise, slash-command wrappers, sidechain chatter, duplicate resends, and "continue" nudges are filtered or folded.
+3. **Builds a fork-aware tree.** Corrections, scope changes, checkpoints, questions, abandoned branches, and accepted paths are derived from prompt topology and user text.
+4. **Analyzes failures and corrections.** TreeTrace adds failure signals, correction chains, lessons, and eval candidates using transparent heuristics.
+5. **Exports regression artifacts.** JSON, Markdown, JSONL, and handoff memory are written locally for agents, CI, eval harnesses, and humans.
+6. **Gates every export with redaction.** Detected secrets must be resolved before anything is written; non-interactive runs redact automatically and shadow-scan rendered output.
 
-A privacy-positioned tool gets exactly one chance with your secrets, so this is the most engineered part of treetrace:
+## Outputs
 
-- Curated provider rules (AWS, GitHub, GitLab, Anthropic, OpenAI, Slack, Stripe, npm, Tailscale, Google, SendGrid, Twilio, Telegram, Discord webhooks, JWTs, private key blocks, WireGuard, basic-auth URLs, bearer tokens, secret assignments) plus a high-entropy fallback.
-- Interactive review of every unique hit before anything is written.
-- A **shadow scan** re-checks the final rendered artifact; an unresolved hit aborts the write.
-- Your decisions persist in `.treetrace/redactions.json` keyed by **content hash only** — the file stores the hash and your chosen action, never the secret itself, so re-runs skip resolved hits without ever recording sensitive data.
+| Artifact | Purpose |
+|----------|---------|
+| `TREETRACE_REPORT.md` | Combined human-readable report for review, terminals, and chat handoff |
+| `PROMPT_TREE.md` | Human-readable narrative of the build path |
+| `.treetrace/tree.json` | Canonical machine-readable lineage schema |
+| `.treetrace/failures.json` | Failure signals, correction chains, and summaries |
+| `.treetrace/lessons.md` | Human-readable lessons for future work |
+| `.treetrace/evals.jsonl` | Generic model-agnostic eval cases |
+| `.treetrace/agent-memory.md` | Compact memory pack for Codex, Claude Code, Cursor, or another agent |
+| `treetrace --handoff` | Agent-ready continuation brief printed to stdout |
 
 ## Usage
 
 ```bash
-npx treetrace                  # trace this project
-npx treetrace --handoff        # agent-ready brief to stdout (pipe into your next agent)
-npx treetrace --handoff | claude -p "Read this handoff brief and continue the project"
-npx treetrace --file session.jsonl     # specific transcript(s)
-npx treetrace --stdin < chat-export.txt # pasted transcript (User:/Assistant: markers)
-npx treetrace --titles-only    # compact tree, no full prompt texts
-npx treetrace --redact-auto    # redact every hit without prompting
+npx treetrace                         # trace this project and write all artifacts
+npx treetrace --report                # write all artifacts and print the human report
+npx treetrace --handoff               # print an agent-ready continuation brief
+npx treetrace --file session.jsonl    # import specific transcript(s)
+npx treetrace --stdin < chat.txt      # parse pasted User:/Assistant: transcript text
+npx treetrace --failures              # write and print .treetrace/failures.json
+npx treetrace --lessons               # write and print .treetrace/lessons.md
+npx treetrace --evals                 # write and print .treetrace/evals.jsonl
+npx treetrace --memory                # write and print .treetrace/agent-memory.md
+npx treetrace --titles-only           # compact human tree, no full prompt details
+npx treetrace --redact-auto           # redact every detected secret without prompting
 npx treetrace --since 2026-06-01
 ```
+
+For a Termius, Codex CLI, Claude Code, or SSH session where you want the report in the terminal window, use:
+
+```bash
+npx treetrace --report --redact-auto
+```
+
+For both terminal output and an extra shell-captured copy:
+
+```bash
+npx treetrace --report --redact-auto | tee treetrace-output.md
+```
+
+If you see a file literally named `output`, that usually came from `--out output` or shell redirection like `> output`. Prefer `TREETRACE_REPORT.md` for human reading and leave `.treetrace/*.json` / `.jsonl` for tools.
+
+## Failure Analysis
+
+TreeTrace does not claim to perfectly understand every session. The first analysis pass is heuristic and explainable: every failure signal includes a type, confidence score, evidence text, and source node IDs.
+
+Initial failure types include:
+
+- `ignored_constraint`
+- `misunderstood_goal`
+- `scope_drift`
+- `wrong_tool_choice`
+- `hallucinated_file_or_api`
+- `repeated_failed_fix`
+- `overbuilt_solution`
+- `underbuilt_solution`
+- `security_or_privacy_risk`
+- `dependency_or_environment_mismatch`
+- `format_violation`
+- `user_frustration`
+- `abandoned_path`
+
+The goal is not judgment. The goal is regression memory: identify what future agents should preserve, avoid, or test.
+
+## Eval Export
+
+`.treetrace/evals.jsonl` turns real session corrections into generic eval cases:
+
+```json
+{"id":"eval_001","source":"treetrace","type":"scope_drift_detection","task":"Continue development without drifting outside the corrected scope.","expected_behavior":["Stay inside the corrected scope","Do not add unrequested product surfaces"],"sourceNodeIds":["node_002","node_003"]}
+```
+
+The format is intentionally model-agnostic. Adapters for promptfoo, OpenAI Evals-style harnesses, LangSmith-style datasets, and other eval systems can build from this JSONL without changing TreeTrace's local-first core.
+
+## Redaction Gate
+
+A privacy-positioned tool gets exactly one chance with your secrets, so every export goes through the same gate:
+
+- Curated provider rules for AWS, GitHub, GitLab, Anthropic, OpenAI, Slack, Stripe, npm, Tailscale, Google, SendGrid, Twilio, Telegram, Discord webhooks, JWTs, private key blocks, WireGuard keys, basic-auth URLs, bearer tokens, and secret assignments.
+- High-entropy fallback for unknown token shapes.
+- Detection for common line-wrapped provider tokens.
+- Interactive review of every unique hit in a TTY.
+- Automatic redaction outside a TTY.
+- Shadow scan of the rendered artifact before write.
+- `.treetrace/redactions.json` stores only content hashes and actions, never raw secrets.
 
 ## Sources
 
 | Source | Status |
 |--------|--------|
-| Claude Code (`~/.claude/projects` JSONL) | ✅ built-in, zero-config |
-| Pasted / plain-text transcripts (`User:` / `Assistant:` markers) | ✅ built-in |
-| Codex CLI, Cursor, SpecStory, ChatGPT export | 🚧 importers welcome — [open an issue](https://github.com/REPLACE-ME-ORG/treetrace/issues) |
+| Claude Code (`~/.claude/projects` JSONL) | Built-in, zero-config |
+| Pasted / plain-text transcripts (`User:` / `Assistant:` markers) | Built-in |
+| Codex CLI, Cursor, SpecStory, ChatGPT export | Importers welcome |
 
-## The format
+## Schema
 
-`PROMPT_TREE.md` is a convention, not a lock-in: commit it at your repo root the way you commit `AGENTS.md`. The machine-readable lineage (`.treetrace/tree.json`) uses an open nodes/edges schema documented in [SCHEMA.md](SCHEMA.md), designed to compose with the [Agent Trace](https://agent-trace.dev/) RFC — Agent Trace records that code was AI-attributed; treetrace records the conversation structure that shaped it.
+`.treetrace/tree.json` uses the open TreeTrace v0.2 schema documented in [SCHEMA.md](SCHEMA.md). It is designed to compose with Agent Trace: Agent Trace can describe which lines were AI-generated, while TreeTrace describes the human instruction lineage that shaped the build.
 
-## Privacy promises
+Consumers should ignore unknown fields. Failure signals, correction chains, lessons, and eval candidates are additive.
 
-- Local-first: no network calls, no telemetry, no accounts. Ever.
-- Raw transcripts are read, never copied, never exported.
-- Prompt-only by default: assistant output stays out of your exports.
-- Fails closed: un-reviewed secrets cannot reach a written artifact.
+## Product Boundaries
+
+TreeTrace is not a hosted SaaS, telemetry product, generic LangSmith clone, prompt-sharing network, or graph visualizer first.
+
+The strongest identity is:
+
+> local, private, structured, eval-ready, agent-aware.
 
 ## License
 
-MIT © Zion Boggan
+MIT (c) Zion Boggan
 
 ---
 
-*This repository ships its own [PROMPT_TREE.md](PROMPT_TREE.md) — the prompt tree of the tool that makes prompt trees.*
+This repository ships its own [PROMPT_TREE.md](PROMPT_TREE.md), but the Markdown tree is now one artifact among several. The main product is structured, local, eval-ready knowledge about how agents fail and how humans correct them.
