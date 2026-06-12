@@ -132,6 +132,25 @@ test('redaction: split provider tokens are caught before shadow scan', () => {
   assert.ok(!masked.includes('sk-proj-'));
 });
 
+test('redaction: whitespace-split secret below the length floor is caught', () => {
+  const dirty = 'store key sk-ant-api03-AAAA BBBBCCCCDDDDEEEEFFFFGGGG into the vault';
+  const findings = scanText(dirty);
+  const hit = findings.find((f) => f.ruleId === 'anthropic-key');
+  assert.ok(hit, `split anthropic-key missed: ${JSON.stringify(findings)}`);
+  const masked = applyDecisions(dirty, findings, {
+    [sha256(hit.match)]: { action: 'redact', replacement: '[REDACTED:anthropic-key]', ruleId: 'anthropic-key' },
+  });
+  assert.ok(!/sk-ant-api03-AAAA/.test(masked), `secret not redacted: ${masked}`);
+  assert.equal(shadowScan(masked, {}).length, 0);
+});
+
+test('redaction: scan stays fast on long benign input (ReDoS guard)', () => {
+  const big = 'http://' + 'a'.repeat(60000);
+  const start = Date.now();
+  scanText(big);
+  assert.ok(Date.now() - start < 2000, 'scan should stay linear on long input');
+});
+
 test('redaction: benign text produces no high/medium findings', () => {
   const benign =
     'Refactor the parser in src/parse.js to handle commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a and bump to v2.1.0-beta.3. The README.md needs a section on CONTRIBUTING.';

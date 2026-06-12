@@ -22,7 +22,7 @@ export const RULES = [
   { id: 'jwt', severity: 'high', re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g },
 
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
-  { id: 'url-basic-auth', severity: 'medium', re: /[a-z][a-z0-9+.-]*:\/\/[^/\s:@'"`]{2,}:[^/\s@'"`]{2,}@[^\s'"`]+/gi },
+  { id: 'url-basic-auth', severity: 'medium', re: /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^/\s:@'"`]{2,256}:[^/\s@'"`]{2,256}@[^\s'"`]{1,512}/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
   { id: 'secret-assignment', severity: 'medium', re: /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*(?!(?:['"]?\s*)?(?:\$\{|<|%|\*{3}|\.{3}|REDACTED|xxx+|placeholder|changeme|example|your[-_]))(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s'"`,;]{8,})/gi },
 
@@ -52,6 +52,15 @@ const JOINED_SCAN_RULE_IDS = new Set([
   'telegram-bot-token',
   'jwt',
 ]);
+
+const LOOSE_RULES = RULES.filter((r) => JOINED_SCAN_RULE_IDS.has(r.id)).map((r) => ({
+  id: r.id,
+  severity: r.severity,
+  re: new RegExp(
+    r.re.source.replace(/^\\b/, '').replace(/\\b$/, '').replace(/\{(\d+),\}/g, '{$1,128}'),
+    'g'
+  ),
+}));
 
 export function scanText(text) {
   const findings = [];
@@ -99,18 +108,18 @@ function scanJoinedProviderTokens(text, existing) {
   const joined = chars.join('');
   const existingSpans = existing.map((f) => [f.index, f.index + f.match.length]);
   const findings = [];
-  for (const rule of RULES) {
-    if (!JOINED_SCAN_RULE_IDS.has(rule.id)) continue;
+  for (const rule of LOOSE_RULES) {
     rule.re.lastIndex = 0;
     let m;
     while ((m = rule.re.exec(joined)) !== null) {
-      const start = indexMap[m.index];
-      const end = indexMap[m.index + m[0].length - 1] + 1;
-      const original = text.slice(start, end);
-      if (!JOIN_SEPARATOR_RE.test(original)) continue;
-      if (original.length - m[0].length > 20) continue;
-      if (existingSpans.some(([s, e]) => start >= s && start < e)) continue;
-      findings.push({ ruleId: rule.id, severity: rule.severity, match: original, index: start });
+      if (m[0].length <= 256) {
+        const start = indexMap[m.index];
+        const end = indexMap[m.index + m[0].length - 1] + 1;
+        const original = text.slice(start, end);
+        if (JOIN_SEPARATOR_RE.test(original) && !existingSpans.some(([s, e]) => start >= s && start < e)) {
+          findings.push({ ruleId: rule.id, severity: rule.severity, match: original, index: start });
+        }
+      }
       if (m.index === rule.re.lastIndex) rule.re.lastIndex++;
     }
   }

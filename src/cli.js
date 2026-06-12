@@ -106,9 +106,14 @@ export async function main(argv) {
 
   const ttDir = join(projectDir, '.treetrace');
   const decisionsPath = join(ttDir, 'redactions.json');
-  const priorDecisions = existsSync(decisionsPath)
-    ? JSON.parse(readFileSync(decisionsPath, 'utf8'))
-    : {};
+  let priorDecisions = {};
+  if (existsSync(decisionsPath)) {
+    try {
+      priorDecisions = JSON.parse(readFileSync(decisionsPath, 'utf8'));
+    } catch {
+      priorDecisions = {};
+    }
+  }
 
   const findings = [];
   for (const node of tree.nodes) findings.push(...scanText(node.text));

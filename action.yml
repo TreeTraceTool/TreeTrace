@@ -24,10 +24,12 @@ runs:
   steps:
     - name: Generate prompt tree
       shell: bash
+      env:
+        TT_SOURCE: ${{ inputs.source }}
       run: |
         set -euo pipefail
-        if [ -n "${{ inputs.source }}" ]; then
-          npx --yes treetrace --file "${{ inputs.source }}" --redact-auto --quiet
+        if [ -n "$TT_SOURCE" ]; then
+          npx --yes treetrace --file "$TT_SOURCE" --redact-auto --quiet
         elif [ -f .treetrace/tree.json ]; then
           echo "::notice::Using committed .treetrace/tree.json"
           node -e "
@@ -43,6 +45,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         set -euo pipefail
         if [ -f TREETRACE_REPORT.md ]; then
@@ -53,7 +56,7 @@ runs:
             echo ""
             echo "_Full report: TREETRACE_REPORT.md_"
           } > /tmp/tt-comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/tt-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/tt-comment.md
         elif [ -f PROMPT_TREE.md ]; then
           {
             echo "### Prompt tree"
@@ -62,5 +65,5 @@ runs:
             echo ""
             echo "_Full lineage: PROMPT_TREE.md_"
           } > /tmp/tt-comment.md
-          gh pr comment "${{ github.event.pull_request.number }}" --body-file /tmp/tt-comment.md
+          gh pr comment "$PR_NUMBER" --body-file /tmp/tt-comment.md
         fi
