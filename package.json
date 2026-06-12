@@ -30,7 +30,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/treetrace.test.js",
-    "prepublishOnly": "node --test test/treetrace.test.js"
+    "test": "node --test test/treetrace.test.js test/adapters.test.js",
+    "prepublishOnly": "node --test test/treetrace.test.js test/adapters.test.js"
   }
 }

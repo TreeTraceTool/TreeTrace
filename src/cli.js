@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { discoverSessions } from './discover.js';
 import { parseSessionFile, parsePlainTranscript } from './parse.js';
+import { adaptFrom, autoAdapt, TOOLS } from './adapters/index.js';
 import { classifyPrompts } from './extract.js';
 import { buildTree } from './tree.js';
 import { scanText, resolveFindings, applyDecisions, shadowScan } from './redact.js';
@@ -25,7 +26,8 @@ const HELP = `TreeTrace - turn AI coding sessions into regression-ready prompt l
 
 Usage:
   treetrace                     auto-discover Claude Code sessions for this directory
-  treetrace --file <path>...    parse specific transcript files (.jsonl or plain text)
+  treetrace --file <path>...    parse specific session/transcript files
+  treetrace --from <tool> --file <path>   import another tool's export
   treetrace --stdin             read a pasted transcript from stdin
   treetrace --report            write all artifacts and print the human report
   treetrace --handoff           print an agent-ready handoff brief to stdout
@@ -35,6 +37,8 @@ Usage:
   treetrace --memory            write and print compact agent memory
 
 Options:
+  --from <tool>         input format for --file: claude, codex, chatgpt, gemini,
+                        copilot, grok, cursor, transcript (default: auto-detect)
   --dir <path>          project directory to trace (default: cwd)
   --out <file>          markdown output path (default: PROMPT_TREE.md)
   --report-file <file>  human report output path (default: TREETRACE_REPORT.md)
@@ -65,11 +69,7 @@ export async function main(argv) {
     sessions = [parsePlainTranscript(text)];
   } else if (opts.files.length) {
     for (const file of opts.files) {
-      if (file.endsWith('.jsonl')) {
-        sessions.push(await parseSessionFile(file, { sessionId: basename(file, '.jsonl') }));
-      } else {
-        sessions.push(parsePlainTranscript(readFileSync(file, 'utf8'), basename(file)));
-      }
+      sessions.push(...(await ingestFile(file, opts.from, log)));
     }
   } else {
     const found = discoverSessions(projectDir);
@@ -202,6 +202,40 @@ export async function main(argv) {
   if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
 }
 
+async function ingestFile(file, from, log) {
+  if (from && from !== 'claude' && from !== 'transcript') {
+    const text = readFileSync(file, 'utf8');
+    return adaptFrom(from, text, file);
+  }
+  if (from === 'claude') {
+    return [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })];
+  }
+  if (from === 'transcript') {
+    return [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))];
+  }
+
+  if (file.endsWith('.jsonl')) {
+    const text = readFileSync(file, 'utf8');
+    const adapted = autoAdapt(text, file);
+    if (adapted && adapted.sessions.some((s) => s.prompts.length)) {
+      log(c.dim(`  detected ${adapted.tool} format in ${basename(file)}`));
+      return adapted.sessions;
+    }
+    return [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })];
+  }
+
+  if (file.endsWith('.json')) {
+    const text = readFileSync(file, 'utf8');
+    const adapted = autoAdapt(text, file);
+    if (adapted && adapted.sessions.some((s) => s.prompts.length)) {
+      log(c.dim(`  detected ${adapted.tool} format in ${basename(file)}`));
+      return adapted.sessions;
+    }
+  }
+
+  return [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))];
+}
+
 function analysisArtifacts(ttDir, tree, renderOpts) {
   return {
     failures: {
@@ -327,6 +361,7 @@ function parseArgs(argv) {
     quiet: false,
     help: false,
     version: false,
+    from: null,
     dir: null,
     out: null,
     reportFile: null,
@@ -352,6 +387,12 @@ function parseArgs(argv) {
       case '--quiet': opts.quiet = true; break;
       case '--help': case '-h': opts.help = true; break;
       case '--version': case '-v': opts.version = true; break;
+      case '--from':
+        opts.from = argv[++i];
+        if (!TOOLS.includes(opts.from)) {
+          throw new Error(`unknown --from value "${opts.from}" (expected one of: ${TOOLS.join(', ')})`);
+        }
+        break;
       case '--dir': opts.dir = argv[++i]; break;
       case '--out': opts.out = argv[++i]; break;
       case '--report-file': opts.reportFile = argv[++i]; break;

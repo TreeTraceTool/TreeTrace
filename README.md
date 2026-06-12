@@ -81,7 +81,8 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `npx treetrace` | Trace this project and write all artifacts |
 | `npx treetrace --report` | Write all artifacts and print the human report |
 | `npx treetrace --handoff` | Print an agent ready continuation brief |
-| `npx treetrace --file session.jsonl` | Import specific transcripts |
+| `npx treetrace --file session.jsonl` | Import specific session or transcript files (format auto-detected) |
+| `npx treetrace --from chatgpt --file conversations.json` | Import another tool's export with an explicit format |
 | `npx treetrace --stdin < chat.txt` | Parse a pasted `User:` / `Assistant:` transcript |
 | `npx treetrace --failures` | Write and print `.treetrace/failures.json` |
 | `npx treetrace --lessons` | Write and print `.treetrace/lessons.md` |
@@ -151,11 +152,40 @@ A privacy-positioned tool gets exactly one chance with your secrets, so every ex
 
 ## Sources
 
-| Source | Status |
-|--------|--------|
-| Claude Code (`~/.claude/projects` JSONL) | Built-in, zero-config |
-| Pasted / plain-text transcripts (`User:` / `Assistant:` markers) | Built-in |
-| Codex CLI, Cursor, SpecStory, ChatGPT export | Importers welcome |
+TreeTrace reads Claude Code automatically and imports other tools through `--file`.
+When you pass a `.json` or `.jsonl` file, the format is auto-detected; you can
+also force it with `--from <tool>`. Everything stays local and passes the same
+redaction gate. The generic `User:` / `Assistant:` transcript parser remains the
+fallback for anything unrecognized.
+
+Verified means the adapter was validated against real session or real published
+export data. Experimental means it was built to the tool's documented export
+schema and validated against a fixture in that exact shape, but not yet against a
+captured real session on a contributor's machine. See
+[test/fixtures/adapters/PROVENANCE.md](test/fixtures/adapters/PROVENANCE.md) for
+the source of every fixture.
+
+| Source | `--from` | Status |
+|--------|----------|--------|
+| Claude Code (`~/.claude/projects` JSONL) | `claude` | Built-in, zero-config, verified |
+| Codex CLI (`~/.codex/sessions/.../rollout-*.jsonl`) | `codex` | Verified against a real session |
+| ChatGPT / OpenAI account export (`conversations.json`) | `chatgpt` | Verified against a real published export sample |
+| Google Gemini CLI session (ChatRecordingService JSON) | `gemini` | Verified against the real gemini-cli session file |
+| GitHub Copilot Chat session (`chatSessions/*.json`) | `copilot` | Verified against a real published session sample |
+| Cursor exported chat JSON | `cursor` | Verified against the export schema (see note) |
+| xAI Grok exported conversation JSON | `grok` | Experimental, built to the exporter schema |
+| Pasted / plain-text transcripts (`User:` / `Assistant:`) | `transcript` | Built-in fallback |
+
+Cursor stores chat in a `state.vscdb` SQLite database. TreeTrace ships with zero
+runtime dependencies and does not open SQLite, so the Cursor adapter ingests an
+exported chat JSON instead. Export your Cursor chat to JSON first (for example
+with a community Cursor chat exporter), then run
+`treetrace --from cursor --file your-chat.json`.
+
+The Grok adapter targets the exported conversation JSON used by Grok CLI tools
+(the xAI OpenAI-compatible `role` / `content` message shape). The widely used
+grok-cli keeps history in SQLite rather than JSON, so this adapter is marked
+experimental until validated against a captured real Grok session.
 
 ## Schema
 

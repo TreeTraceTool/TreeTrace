@@ -1,0 +1,250 @@
+{
+ "version": 3,
+ "requesterUsername": "user",
+ "requesterAvatarIconUri": {
+  "$mid": 1,
+  "path": "/u/12345678",
+  "scheme": "https",
+  "authority": "avatars.githubusercontent.com",
+  "query": "v=4"
+ },
+ "responderUsername": "GitHub Copilot",
+ "responderAvatarIconUri": {
+  "id": "copilot"
+ },
+ "initialLocation": "panel",
+ "requests": [
+  {
+   "requestId": "request_demo_001",
+   "message": {
+    "text": "Create a simple HTML page with a heading and a paragraph.",
+    "parts": [
+     {
+      "range": {
+       "start": 0,
+       "endExclusive": 32
+      },
+      "editorRange": {
+       "startLineNumber": 1,
+       "startColumn": 1,
+       "endLineNumber": 1,
+       "endColumn": 33
+      },
+      "text": "Create a simple HTML page with a heading and a paragraph.",
+      "kind": "text"
+     }
+    ]
+   },
+   "variableData": {
+    "variables": []
+   },
+   "response": [
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false,
+     "baseUri": {
+      "$mid": 1,
+      "path": "/C:/Users/TestUser/Documents/",
+      "scheme": "file"
+     }
+    },
+    {
+     "kind": "prepareToolInvocation",
+     "toolName": "copilot_createFile"
+    },
+    {
+     "kind": "toolInvocationSerialized",
+     "invocationMessage": {
+      "value": "\u6b63\u5728\u521b\u5efa HTML \u6587\u4ef6",
+      "supportThemeIcons": false,
+      "supportHtml": false
+     },
+     "pastTenseMessage": {
+      "value": "\u5df2\u521b\u5efa HTML \u6587\u4ef6",
+      "supportThemeIcons": false,
+      "supportHtml": false
+     },
+     "isConfirmed": true,
+     "isComplete": true,
+     "toolCallId": "demo_tool_001",
+     "toolId": "copilot_createFile"
+    }
+   ]
+  },
+  {
+   "requestId": "request_demo_002",
+   "message": {
+    "text": "Can you add some CSS styling to this page?",
+    "parts": [
+     {
+      "range": {
+       "start": 0,
+       "endExclusive": 19
+      },
+      "editorRange": {
+       "startLineNumber": 1,
+       "startColumn": 1,
+       "endLineNumber": 1,
+       "endColumn": 20
+      },
+      "text": "Can you add some CSS styling to this page?",
+      "kind": "text"
+     }
+    ]
+   },
+   "variableData": {
+    "variables": []
+   },
+   "response": [
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    },
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    }
+   ]
+  },
+  {
+   "requestId": "request_demo_003",
+   "message": {
+    "text": "Add some JavaScript interactivity.",
+    "parts": [
+     {
+      "range": {
+       "start": 0,
+       "endExclusive": 18
+      },
+      "editorRange": {
+       "startLineNumber": 1,
+       "startColumn": 1,
+       "endLineNumber": 1,
+       "endColumn": 19
+      },
+      "text": "Add some JavaScript interactivity.",
+      "kind": "text"
+     }
+    ]
+   },
+   "variableData": {
+    "variables": []
+   },
+   "response": [
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    },
+    {
+     "kind": "prepareToolInvocation",
+     "toolName": "copilot_createFile"
+    },
+    {
+     "kind": "toolInvocationSerialized",
+     "invocationMessage": {
+      "value": "\u6b63\u5728\u521b\u5efa JavaScript \u6587\u4ef6",
+      "supportThemeIcons": false,
+      "supportHtml": false
+     },
+     "pastTenseMessage": {
+      "value": "\u5df2\u521b\u5efa JavaScript \u6587\u4ef6\uff0c\u5305\u542b\u4ea4\u4e92\u529f\u80fd",
+      "supportThemeIcons": false,
+      "supportHtml": false
+     },
+     "isConfirmed": true,
+     "isComplete": true,
+     "toolCallId": "demo_tool_002",
+     "toolId": "copilot_createFile"
+    },
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    }
+   ]
+  },
+  {
+   "requestId": "request_demo_004",
+   "message": {
+    "text": "How can I make the page responsive?",
+    "parts": [
+     {
+      "range": {
+       "start": 0,
+       "endExclusive": 12
+      },
+      "editorRange": {
+       "startLineNumber": 1,
+       "startColumn": 1,
+       "endLineNumber": 1,
+       "endColumn": 13
+      },
+      "text": "How can I make the page responsive?",
+      "kind": "text"
+     }
+    ]
+   },
+   "variableData": {
+    "variables": []
+   },
+   "response": [
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    },
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    }
+   ]
+  },
+  {
+   "requestId": "request_demo_005",
+   "message": {
+    "text": "Optimize the page for performance.",
+    "parts": [
+     {
+      "range": {
+       "start": 0,
+       "endExclusive": 9
+      },
+      "editorRange": {
+       "startLineNumber": 1,
+       "startColumn": 1,
+       "endLineNumber": 1,
+       "endColumn": 10
+      },
+      "text": "Optimize the page for performance.",
+      "kind": "text"
+     }
+    ]
+   },
+   "variableData": {
+    "variables": []
+   },
+   "response": [
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    },
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    },
+    {
+     "value": "Here is the updated page with your requested change.",
+     "supportThemeIcons": false,
+     "supportHtml": false
+    }
+   ]
+  }
+ ]
+}

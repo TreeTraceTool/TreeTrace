@@ -1,0 +1,359 @@
+[
+ {
+  "title": "Debounce a search input in React",
+  "create_time": 1727699286.485543,
+  "update_time": 1727699296.187922,
+  "mapping": {
+   "350877d5-b411-41fa-b87b-0f7680d3f061": {
+    "id": "350877d5-b411-41fa-b87b-0f7680d3f061",
+    "message": {
+     "id": "350877d5-b411-41fa-b87b-0f7680d3f061",
+     "author": {
+      "role": "system",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": null,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       ""
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": true,
+     "weight": 0.0,
+     "metadata": {},
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "bbb23b75-51a7-4302-9331-efc1d6ebfc4d",
+    "children": [
+     "091b5281-b7e3-4141-bb44-f351aa6c14c3"
+    ]
+   },
+   "bbb23b75-51a7-4302-9331-efc1d6ebfc4d": {
+    "id": "bbb23b75-51a7-4302-9331-efc1d6ebfc4d",
+    "message": null,
+    "parent": null,
+    "children": [
+     "350877d5-b411-41fa-b87b-0f7680d3f061"
+    ]
+   },
+   "091b5281-b7e3-4141-bb44-f351aa6c14c3": {
+    "id": "091b5281-b7e3-4141-bb44-f351aa6c14c3",
+    "message": {
+     "id": "091b5281-b7e3-4141-bb44-f351aa6c14c3",
+     "author": {
+      "role": "system",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": null,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       ""
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 1.0,
+     "metadata": {},
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "350877d5-b411-41fa-b87b-0f7680d3f061",
+    "children": [
+     "bbb2131f-0bfa-4467-9782-b2e4b7bbcf57"
+    ]
+   },
+   "bbb2131f-0bfa-4467-9782-b2e4b7bbcf57": {
+    "id": "bbb2131f-0bfa-4467-9782-b2e4b7bbcf57",
+    "message": {
+     "id": "bbb2131f-0bfa-4467-9782-b2e4b7bbcf57",
+     "author": {
+      "role": "user",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": 1727699286.491499,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "What is a good way to debounce a search input in React?"
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 1.0,
+     "metadata": {},
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "091b5281-b7e3-4141-bb44-f351aa6c14c3",
+    "children": [
+     "1433a3b0-30ad-4905-8214-97e7301aba3f"
+    ]
+   },
+   "1433a3b0-30ad-4905-8214-97e7301aba3f": {
+    "id": "1433a3b0-30ad-4905-8214-97e7301aba3f",
+    "message": {
+     "id": "1433a3b0-30ad-4905-8214-97e7301aba3f",
+     "author": {
+      "role": "assistant",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": 1727699293.376943,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Use a useEffect with a setTimeout cleared on each keystroke, or a small useDebounce hook."
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 1.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "bbb2131f-0bfa-4467-9782-b2e4b7bbcf57",
+    "children": [
+     "f7af31ac-d221-4500-93cb-39a0858bc434"
+    ]
+   },
+   "f7af31ac-d221-4500-93cb-39a0858bc434": {
+    "id": "f7af31ac-d221-4500-93cb-39a0858bc434",
+    "message": {
+     "id": "f7af31ac-d221-4500-93cb-39a0858bc434",
+     "author": {
+      "role": "assistant",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": 1727699293.377045,
+     "content": {
+      "content_type": "code",
+      "language": "unknown",
+      "response_format_name": null,
+      "text": "search(\"average temperature in Seoul early October\")"
+     },
+     "status": "finished_successfully",
+     "end_turn": false,
+     "weight": 1.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "browser",
+     "channel": null
+    },
+    "parent": "1433a3b0-30ad-4905-8214-97e7301aba3f",
+    "children": [
+     "2c30b440-db17-4b17-ad71-82d08d61d675"
+    ]
+   },
+   "2c30b440-db17-4b17-ad71-82d08d61d675": {
+    "id": "2c30b440-db17-4b17-ad71-82d08d61d675",
+    "message": {
+     "id": "2c30b440-db17-4b17-ad71-82d08d61d675",
+     "author": {
+      "role": "tool",
+      "name": "browser",
+      "metadata": {}
+     },
+     "create_time": 1727699293.37713,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "redacted tool output"
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 0.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "f7af31ac-d221-4500-93cb-39a0858bc434",
+    "children": [
+     "4503a2a3-a0d4-485b-be1b-5ad93cd8d836"
+    ]
+   },
+   "4503a2a3-a0d4-485b-be1b-5ad93cd8d836": {
+    "id": "4503a2a3-a0d4-485b-be1b-5ad93cd8d836",
+    "message": {
+     "id": "4503a2a3-a0d4-485b-be1b-5ad93cd8d836",
+     "author": {
+      "role": "assistant",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": 1727699293.377201,
+     "content": {
+      "content_type": "code",
+      "language": "unknown",
+      "response_format_name": null,
+      "text": "mclick([0, 3, 2, 9, 1])"
+     },
+     "status": "finished_successfully",
+     "end_turn": false,
+     "weight": 1.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "browser",
+     "channel": null
+    },
+    "parent": "2c30b440-db17-4b17-ad71-82d08d61d675",
+    "children": [
+     "38983cbf-6a71-4d1b-959b-aadd6a97230b"
+    ]
+   },
+   "38983cbf-6a71-4d1b-959b-aadd6a97230b": {
+    "id": "38983cbf-6a71-4d1b-959b-aadd6a97230b",
+    "message": {
+     "id": "38983cbf-6a71-4d1b-959b-aadd6a97230b",
+     "author": {
+      "role": "tool",
+      "name": "browser",
+      "metadata": {}
+     },
+     "create_time": 1727699293.377272,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "redacted tool output"
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 0.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "4503a2a3-a0d4-485b-be1b-5ad93cd8d836",
+    "children": [
+     "24ab741e-ccaf-46d9-8049-9d7031de88a3"
+    ]
+   },
+   "24ab741e-ccaf-46d9-8049-9d7031de88a3": {
+    "id": "24ab741e-ccaf-46d9-8049-9d7031de88a3",
+    "message": {
+     "id": "24ab741e-ccaf-46d9-8049-9d7031de88a3",
+     "author": {
+      "role": "tool",
+      "name": "browser",
+      "metadata": {}
+     },
+     "create_time": 1727699293.37734,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "redacted tool output"
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 0.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "38983cbf-6a71-4d1b-959b-aadd6a97230b",
+    "children": [
+     "a4f5ed82-25cb-40b2-92a1-689c9f9887ec"
+    ]
+   },
+   "a4f5ed82-25cb-40b2-92a1-689c9f9887ec": {
+    "id": "a4f5ed82-25cb-40b2-92a1-689c9f9887ec",
+    "message": {
+     "id": "a4f5ed82-25cb-40b2-92a1-689c9f9887ec",
+     "author": {
+      "role": "tool",
+      "name": "browser",
+      "metadata": {}
+     },
+     "create_time": 1727699293.377407,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "redacted tool output"
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": null,
+     "weight": 0.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "24ab741e-ccaf-46d9-8049-9d7031de88a3",
+    "children": [
+     "e58a766b-0b78-49ff-bfaf-fee6be2689ba"
+    ]
+   },
+   "e58a766b-0b78-49ff-bfaf-fee6be2689ba": {
+    "id": "e58a766b-0b78-49ff-bfaf-fee6be2689ba",
+    "message": {
+     "id": "e58a766b-0b78-49ff-bfaf-fee6be2689ba",
+     "author": {
+      "role": "assistant",
+      "name": null,
+      "metadata": {}
+     },
+     "create_time": 1727699293.377481,
+     "content": {
+      "content_type": "text",
+      "parts": [
+       "Use a useEffect with a setTimeout cleared on each keystroke, or a small useDebounce hook."
+      ]
+     },
+     "status": "finished_successfully",
+     "end_turn": true,
+     "weight": 1.0,
+     "metadata": {
+      "model_slug": "gpt-4o"
+     },
+     "recipient": "all",
+     "channel": null
+    },
+    "parent": "a4f5ed82-25cb-40b2-92a1-689c9f9887ec",
+    "children": []
+   }
+  },
+  "moderation_results": [],
+  "current_node": "e58a766b-0b78-49ff-bfaf-fee6be2689ba",
+  "plugin_ids": null,
+  "conversation_id": "anon-convo-chatgpt-demo",
+  "conversation_template_id": null,
+  "gizmo_id": null,
+  "gizmo_type": null,
+  "is_archived": false,
+  "is_starred": null,
+  "safe_urls": [
+   "https://weather-and-climate.com/Seoul-October-averages",
+   "https://wanderlog.com/weather/9/10/seoul-weather-in-october",
+   "https://www.weather-atlas.com/en/south-korea/seoul-weather-october"
+  ],
+  "default_model_slug": "gpt-4o",
+  "conversation_origin": null,
+  "voice": null,
+  "async_status": null,
+  "disabled_tool_ids": [],
+  "id": "66fa9956-4144-800c-b052-6f0187d888d4"
+ }
+]
