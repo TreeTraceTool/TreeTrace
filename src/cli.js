@@ -20,7 +20,7 @@ import {
 import { makeTitle } from './extract.js';
 import { c, plural, truncate } from './util.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 
 const HELP = `TreeTrace - turn AI coding sessions into regression-ready prompt lineage
 
