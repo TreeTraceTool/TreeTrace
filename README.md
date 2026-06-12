@@ -1,8 +1,14 @@
 # TreeTrace
 
-**Turn AI coding sessions into regression-ready prompt lineage.**
+[![npm version](https://img.shields.io/npm/v/treetrace.svg)](https://www.npmjs.com/package/treetrace)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 
-TreeTrace reads local AI coding transcripts and extracts the path of human steering: the root goal, direction changes, corrections, abandoned branches, accepted decisions, and the final shipped path.
+**Git shows what changed. TreeTrace shows how you steered the agent.**
+
+TreeTrace is the local-first regression and memory layer for AI coding agents. It reads local AI coding transcripts and reconstructs the path of human steering: the root goal, direction changes, corrections, abandoned branches, accepted decisions, and the final shipped path. The sharpest signal is security. TreeTrace flags every time an agent touched auth, secrets, or access control, disabled tests, ran unsafe shell, or opened an SSRF, RCE, or XSS path, captures the human correction that pulled it back, and turns that correction into a regression eval so the next agent does not repeat it.
+
+Website: [treetrace.dev](https://treetrace.dev)
 
 It then exports:
 
@@ -33,6 +39,18 @@ Git history shows what changed. TreeTrace shows how the human had to steer the a
 AI coding sessions contain the most useful regression data teams have: where the model misunderstood the goal, which correction fixed it, which branch was abandoned, what constraint kept getting ignored, and what should become an eval so the next agent does not repeat the failure.
 
 TreeTrace is the local-first layer between raw chat logs, runtime traces, and code provenance.
+
+## Security regression memory
+
+Agents drift into the dangerous places: editing auth flows, printing secrets, loosening access control, deleting or skipping tests, running shell that touches the network, or wiring up an SSRF, RCE, or XSS path. The moment that matters is the human correction right after, the steer that pulled the agent back. Git keeps the final diff but loses that steer. TreeTrace keeps both.
+
+The loop is explicit:
+
+1. **Failure.** TreeTrace flags the risky agent action with a typed signal (for example `security_or_privacy_risk`), a confidence score, the evidence text, and the source node IDs.
+2. **Eval.** The human correction that resolved it becomes a model-agnostic case in `.treetrace/evals.jsonl`, so the same mistake is caught next time in CI or an eval harness.
+3. **Handoff.** The lesson lands in `.treetrace/agent-memory.md` and `treetrace --handoff`, so the next agent starts already knowing the constraint instead of relearning it.
+
+Failure to eval to handoff: every correction you made by hand becomes a guardrail the next session inherits.
 
 ## What It Does
 
