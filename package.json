@@ -1,7 +1,7 @@
 {
   "name": "treetrace",
-  "version": "0.1.0",
-  "description": "Turn AI coding sessions into a clean, shareable PROMPT_TREE.md — the prompt lineage that built your project.",
+  "version": "0.2.0",
+  "description": "Turn AI coding sessions into regression-ready prompt lineage, failure analysis, eval cases, and handoff memory.",
   "keywords": [
     "claude-code",
     "prompt",
@@ -10,7 +10,10 @@
     "ai",
     "transcript",
     "lineage",
-    "agent"
+    "agent",
+    "evals",
+    "regression",
+    "memory"
   ],
   "license": "MIT",
   "author": "Zion Boggan",
@@ -27,6 +30,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test test/treetrace.test.js",
+    "prepublishOnly": "node --test test/treetrace.test.js"
   }
 }
