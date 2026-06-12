@@ -3,11 +3,11 @@
   "generator": {
     "name": "treetrace",
     "version": "0.2.0",
-    "url": "https://github.com/REPLACE-ME-ORG/treetrace"
+    "url": "https://github.com/Tree-Trace/treetrace"
   },
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-12T04:12:12.307Z",
+    "generatedAt": "2026-06-12T04:29:00.937Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
