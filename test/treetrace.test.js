@@ -232,6 +232,36 @@ test('analysis: tiny transcript without corrections does not invent failures', (
   assert.deepEqual(analysis.failures, []);
 });
 
+test('analysis: a security-sensitive agent action produces a verified, model-attributed signal', () => {
+  const root = {
+    id: 'node_001', text: 'Add rate limiting to checkout', title: 'Add rate limiting to checkout',
+    kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/auth/session.ts', command: null, model: 'claude-sonnet-4-6' }],
+  };
+  const correction = {
+    id: 'node_002', text: 'check the existing auth flow first', title: 'check the existing auth flow first',
+    kind: 'correction', status: 'accepted', parent: root, actions: [],
+  };
+  const analysis = analyzeTree({ nodes: [root, correction] });
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec, 'expected a verified security signal from the auth-file edit');
+  assert.equal(sec.tier, 'verified');
+  assert.equal(sec.model, 'claude-sonnet-4-6');
+  assert.equal(sec.correctedByNodeId, 'node_002');
+  assert.ok(sec.evidence.includes('session.ts'));
+  assert.deepEqual(analysis.summary.models, ['claude-sonnet-4-6']);
+  assert.ok(analysis.summary.tierCounts.verified >= 1);
+});
+
+test('analysis: a keyword-only correction stays in the inferred or confirmed tier, not verified', () => {
+  const root = { id: 'node_001', text: 'build a dashboard', title: 'build a dashboard', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const corr = { id: 'node_002', text: 'no, that is overbuilt, keep it minimal', title: 'no, that is overbuilt', kind: 'correction', status: 'accepted', parent: root, actions: [] };
+  const analysis = analyzeTree({ nodes: [root, corr] });
+  assert.ok(analysis.failures.length >= 1);
+  assert.ok(analysis.failures.every((f) => f.tier !== 'verified'));
+  assert.equal(analysis.summary.tierCounts.verified, 0);
+});
+
 test('cli: default run writes analysis artifacts with redaction', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'treetrace-'));
   try {

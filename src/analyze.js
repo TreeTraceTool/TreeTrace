@@ -28,13 +28,25 @@ const REPEATED_FIX_HINT = /\b(still failing|still broken|again|same error|didn'?
 const UNDERBUILT_HINT = /\b(underbuilt|missing|not enough|too bare|incomplete|you skipped|you missed)\b/i;
 const FORMAT_HINT = /\b(format|json|markdown|schema|same structure|exact output|invalid)\b/i;
 
+const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
+const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
+
+function securityActions(node) {
+  return (node.actions || []).filter(
+    (a) => (a.file && SECURITY_FILE_RE.test(a.file)) || (a.command && RISKY_CMD_RE.test(a.command))
+  );
+}
+
 export function analyzeTree(tree) {
   if (tree.analysis) return tree.analysis;
 
+  const modelsSeen = new Set();
   for (const node of tree.nodes) {
     node.failureSignals = [];
     node.evalCandidate = false;
     node.lessonIds = [];
+    node.model = (node.actions || []).map((a) => a.model).find(Boolean) || null;
+    for (const a of node.actions || []) if (a.model) modelsSeen.add(a.model);
   }
 
   const failures = [];
@@ -64,15 +76,17 @@ export function analyzeTree(tree) {
     });
   };
 
-  const addFailure = ({ type, confidence, failureNode, correctionNode, resolvedNode, evidence, summary }) => {
+  const addFailure = ({ type, confidence, tier = 'inferred', failureNode, correctionNode, resolvedNode, evidence, summary }) => {
     if (!FAILURE_TYPES.has(type) || !failureNode) return null;
     if (correctionNode && correctionNode.id === failureNode.id) correctionNode = null;
+    const model = failureNode.model || null;
 
     const ids = uniq([failureNode.id, correctionNode?.id, resolvedNode?.id]);
     const key = `${type}:${failureNode.id}`;
     const existing = failureByKey.get(key);
     if (existing) {
       if (confidence > existing.confidence) existing.confidence = confidence;
+      if (tierRank(tier) > tierRank(existing.tier)) existing.tier = tier;
       const lr = lessonByType.get(type);
       if (lr) lr.nodeIds = uniq([...lr.nodeIds, ...ids]);
       const er = evalByType.get(evalTypeFor(type));
@@ -116,7 +130,9 @@ export function analyzeTree(tree) {
 
     failureNode.failureSignals.push({
       type,
+      tier,
       confidence,
+      model,
       evidence,
       resolvedBy: correctionNode?.id || resolvedNode?.id || null,
     });
@@ -126,7 +142,9 @@ export function analyzeTree(tree) {
     const failure = {
       id: `failure_${pad(failures.length + 1)}`,
       type,
+      tier,
       confidence,
+      model,
       firstSeenNodeId: failureNode.id,
       correctedByNodeId: correctionNode?.id || null,
       summary,
@@ -141,10 +159,26 @@ export function analyzeTree(tree) {
   };
 
   tree.nodes.forEach((node, index) => {
+    const secActs = securityActions(node);
+    if (secActs.length) {
+      const targets = uniq(secActs.map((a) => a.file || a.command)).slice(0, 3);
+      addFailure({
+        type: 'security_or_privacy_risk',
+        confidence: 0.95,
+        tier: 'verified',
+        failureNode: node,
+        correctionNode: node.kind === 'correction' ? null : nearestCorrectionAfter(tree.nodes, index),
+        resolvedNode: nearestAcceptedAfter(tree.nodes, index),
+        evidence: `Agent touched security-sensitive targets: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
+        summary: `An agent action touched auth, secrets, or access control near "${truncate(node.title, 90)}".`,
+      });
+    }
+
     if (node.status === 'abandoned') {
       addFailure({
         type: 'abandoned_path',
         confidence: 0.9,
+        tier: 'verified',
         failureNode: node,
         resolvedNode: nearestAcceptedAfter(tree.nodes, index),
         evidence: `Branch abandoned after prompt: "${quote(node.text)}"`,
@@ -167,9 +201,13 @@ export function analyzeTree(tree) {
     const signals = inferSignals(node);
 
     for (const signal of signals) {
+      const tier = correctionNode ? 'confirmed' : 'inferred';
+      const confidence =
+        tier === 'confirmed' ? Math.max(signal.confidence, 0.82) : Math.min(signal.confidence, 0.7);
       addFailure({
         type: signal.type,
-        confidence: signal.confidence,
+        confidence,
+        tier,
         failureNode,
         correctionNode,
         resolvedNode,
@@ -185,6 +223,8 @@ export function analyzeTree(tree) {
     summary: {
       totalFailureSignals: failures.length,
       topFailureTypes,
+      tierCounts: countTiers(failures),
+      models: [...modelsSeen],
       correctionChains: correctionChains.length,
       evalCandidates: evalCandidates.length,
       lessons: lessons.length,
@@ -321,6 +361,23 @@ function nearestAcceptedAfter(nodes, index) {
     if (nodes[i].status !== 'abandoned') return nodes[i];
   }
   return null;
+}
+
+function nearestCorrectionAfter(nodes, index) {
+  for (let i = index + 1; i < nodes.length; i++) {
+    if (nodes[i].status !== 'abandoned' && nodes[i].kind === 'correction') return nodes[i];
+  }
+  return null;
+}
+
+function tierRank(tier) {
+  return tier === 'verified' ? 3 : tier === 'confirmed' ? 2 : 1;
+}
+
+function countTiers(failures) {
+  const counts = { verified: 0, confirmed: 0, inferred: 0 };
+  for (const f of failures) if (counts[f.tier] !== undefined) counts[f.tier]++;
+  return counts;
 }
 
 function summarizeFailure(type, failureNode, correctionNode) {

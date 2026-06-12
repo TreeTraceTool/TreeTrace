@@ -37,7 +37,13 @@ export function renderReportMarkdown(tree, opts = {}) {
   if (tree.stats.abandonedBranches) lines.push(`- Abandoned branches: ${tree.stats.abandonedBranches}`);
   if (tree.stats.toolUses) lines.push(`- Tool calls: ${tree.stats.toolUses.toLocaleString()}`);
   if (tree.stats.filesTouched) lines.push(`- Files touched: ${tree.stats.filesTouched}`);
-  lines.push(`- Failure signals: ${analysis.summary.totalFailureSignals}`);
+  const tc = analysis.summary.tierCounts || { verified: 0, confirmed: 0, inferred: 0 };
+  lines.push(
+    `- Failure signals: ${analysis.summary.totalFailureSignals} (verified ${tc.verified}, confirmed ${tc.confirmed}, inferred ${tc.inferred})`
+  );
+  if (analysis.summary.models && analysis.summary.models.length) {
+    lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
+  }
   lines.push(`- Eval candidates: ${analysis.summary.evalCandidates}`);
   lines.push(`- Lessons: ${analysis.summary.lessons}`);
   lines.push('');
@@ -63,10 +69,25 @@ export function renderReportMarkdown(tree, opts = {}) {
     }
     lines.push('');
     for (const failure of analysis.failures.slice(0, 8)) {
-      lines.push(`- ${failure.id} (${failure.type}, ${confidencePct(failure.confidence)}): ${escapeMd(failure.summary)}`);
+      const meta = [failure.tier, confidencePct(failure.confidence), failure.model].filter(Boolean).join(', ');
+      lines.push(`- ${failure.id} (${failure.type}, ${meta}): ${escapeMd(failure.summary)}`);
     }
     if (analysis.failures.length > 8) {
       lines.push(`- ... ${analysis.failures.length - 8} more in .treetrace/failures.json`);
+    }
+    lines.push('');
+  }
+
+  const securityTrail = analysis.failures.filter(
+    (f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified'
+  );
+  if (securityTrail.length) {
+    lines.push('## Security audit trail');
+    lines.push('');
+    lines.push('Every time an agent touched auth, secrets, or access control in this session:');
+    lines.push('');
+    for (const f of securityTrail.slice(0, 10)) {
+      lines.push(`- ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
     }
     lines.push('');
   }
