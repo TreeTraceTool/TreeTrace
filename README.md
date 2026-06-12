@@ -22,6 +22,10 @@ npx treetrace
 
 No accounts. No uploads. No telemetry. Your transcripts never leave your machine.
 
+## Requirements
+
+Node.js 18 or newer. TreeTrace ships with no runtime dependencies, so `npx treetrace` needs nothing else installed.
+
 ## Why
 
 Git history shows what changed. TreeTrace shows how the human had to steer the agent to get there.

@@ -42,26 +42,89 @@ export function analyzeTree(tree) {
   const lessons = [];
   const evalCandidates = [];
 
+  const pad = (n) => String(n).padStart(3, '0');
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  const failureByKey = new Map();
+  const lessonByType = new Map();
+  const evalByType = new Map();
+
+  const linkChain = (type, confidence, failureNode, correctionNode, resolvedNode, summary) => {
+    if (!correctionNode || correctionNode.id === failureNode.id) return;
+    if (correctionChains.some((c) => c.failureNodeId === failureNode.id && c.correctionNodeId === correctionNode.id)) {
+      return;
+    }
+    correctionChains.push({
+      id: `chain_${pad(correctionChains.length + 1)}`,
+      failureNodeId: failureNode.id,
+      correctionNodeId: correctionNode.id,
+      resolvedNodeId: resolvedNode?.id || null,
+      failureType: type,
+      confidence: confidenceLabel(confidence),
+      summary,
+    });
+  };
+
   const addFailure = ({ type, confidence, failureNode, correctionNode, resolvedNode, evidence, summary }) => {
     if (!FAILURE_TYPES.has(type) || !failureNode) return null;
+    if (correctionNode && correctionNode.id === failureNode.id) correctionNode = null;
 
-    const failureId = `failure_${String(failures.length + 1).padStart(3, '0')}`;
-    const lessonId = `lesson_${String(lessons.length + 1).padStart(3, '0')}`;
-    const evalId = `eval_${String(evalCandidates.length + 1).padStart(3, '0')}`;
+    const ids = uniq([failureNode.id, correctionNode?.id, resolvedNode?.id]);
+    const key = `${type}:${failureNode.id}`;
+    const existing = failureByKey.get(key);
+    if (existing) {
+      if (confidence > existing.confidence) existing.confidence = confidence;
+      const lr = lessonByType.get(type);
+      if (lr) lr.nodeIds = uniq([...lr.nodeIds, ...ids]);
+      const er = evalByType.get(evalTypeFor(type));
+      if (er) er.sourceNodeIds = uniq([...er.sourceNodeIds, ...ids]);
+      if (correctionNode && !existing.correctedByNodeId) existing.correctedByNodeId = correctionNode.id;
+      linkChain(type, confidence, failureNode, correctionNode, resolvedNode, summary);
+      return existing;
+    }
+
     const lesson = lessonFor(type, correctionNode || failureNode);
+    let lessonRec = lessonByType.get(type);
+    if (!lessonRec) {
+      lessonRec = { id: `lesson_${pad(lessons.length + 1)}`, title: lesson.title, nodeIds: ids, text: lesson.text };
+      lessons.push(lessonRec);
+      lessonByType.set(type, lessonRec);
+    } else {
+      lessonRec.nodeIds = uniq([...lessonRec.nodeIds, ...ids]);
+    }
 
-    const signal = {
+    const evalType = evalTypeFor(type);
+    let evalRec = evalByType.get(evalType);
+    if (!evalRec) {
+      evalRec = {
+        id: `eval_${pad(evalCandidates.length + 1)}`,
+        source: 'treetrace',
+        type: evalType,
+        task: evalTaskFor(type),
+        context: summary,
+        input: correctionNode
+          ? `Honor this correction and keep building: "${quote(correctionNode.text)}"`
+          : `Honor this stated requirement and keep building: "${quote(failureNode.text)}"`,
+        expected_behavior: expectedBehaviorFor(type),
+        failure_mode: failureModeFor(type),
+        sourceNodeIds: ids,
+      };
+      evalCandidates.push(evalRec);
+      evalByType.set(evalType, evalRec);
+    } else {
+      evalRec.sourceNodeIds = uniq([...evalRec.sourceNodeIds, ...ids]);
+    }
+
+    failureNode.failureSignals.push({
       type,
       confidence,
       evidence,
       resolvedBy: correctionNode?.id || resolvedNode?.id || null,
-    };
-    failureNode.failureSignals.push(signal);
+    });
     failureNode.evalCandidate = true;
-    failureNode.lessonIds.push(lessonId);
+    failureNode.lessonIds.push(lessonRec.id);
 
     const failure = {
-      id: failureId,
+      id: `failure_${pad(failures.length + 1)}`,
       type,
       confidence,
       firstSeenNodeId: failureNode.id,
@@ -72,38 +135,8 @@ export function analyzeTree(tree) {
       evalCandidate: true,
     };
     failures.push(failure);
-
-    lessons.push({
-      id: lessonId,
-      title: lesson.title,
-      nodeIds: [...new Set([failureNode.id, correctionNode?.id, resolvedNode?.id].filter(Boolean))],
-      text: lesson.text,
-    });
-
-    evalCandidates.push({
-      id: evalId,
-      source: 'treetrace',
-      type: evalTypeFor(type),
-      task: evalTaskFor(type),
-      context: summary,
-      input: 'Continue development of the project while preserving the corrected direction and constraints.',
-      expected_behavior: expectedBehaviorFor(type),
-      failure_mode: failureModeFor(type),
-      sourceNodeIds: [...new Set([failureNode.id, correctionNode?.id, resolvedNode?.id].filter(Boolean))],
-    });
-
-    if (correctionNode) {
-      correctionChains.push({
-        id: `chain_${String(correctionChains.length + 1).padStart(3, '0')}`,
-        failureNodeId: failureNode.id,
-        correctionNodeId: correctionNode.id,
-        resolvedNodeId: resolvedNode?.id || null,
-        failureType: type,
-        confidence: confidenceLabel(confidence),
-        summary,
-      });
-    }
-
+    failureByKey.set(key, failure);
+    linkChain(type, confidence, failureNode, correctionNode, resolvedNode, summary);
     return failure;
   };
 
@@ -127,7 +160,9 @@ export function analyzeTree(tree) {
       PRIVACY_HINT.test(node.text);
     if (!shouldAnalyze) return;
 
-    const failureNode = nearestFailureTarget(node, tree.nodes, index);
+    const priorNode = nearestFailureTarget(node, tree.nodes, index);
+    const failureNode = priorNode || node;
+    const correctionNode = priorNode ? node : null;
     const resolvedNode = nearestAcceptedAfter(tree.nodes, index);
     const signals = inferSignals(node);
 
@@ -136,10 +171,10 @@ export function analyzeTree(tree) {
         type: signal.type,
         confidence: signal.confidence,
         failureNode,
-        correctionNode: node,
+        correctionNode,
         resolvedNode,
         evidence: `User said: "${quote(node.text)}"`,
-        summary: summarizeFailure(signal.type, failureNode, node),
+        summary: summarizeFailure(signal.type, failureNode, correctionNode),
       });
     }
   });
@@ -263,11 +298,11 @@ function inferSignals(node) {
 }
 
 function nearestFailureTarget(node, nodes, index) {
-  if (node.parent && node.parent.status !== 'abandoned') return node.parent;
+  if (node.parent && node.parent.status !== 'abandoned' && node.parent.id !== node.id) return node.parent;
   for (let i = index - 1; i >= 0; i--) {
-    if (nodes[i].status !== 'abandoned') return nodes[i];
+    if (nodes[i].status !== 'abandoned' && nodes[i].id !== node.id) return nodes[i];
   }
-  return node;
+  return null;
 }
 
 function nearestAcceptedAfter(nodes, index) {
@@ -279,6 +314,18 @@ function nearestAcceptedAfter(nodes, index) {
 
 function summarizeFailure(type, failureNode, correctionNode) {
   const subject = truncate(failureNode?.title || 'a previous direction', 90);
+  if (!correctionNode) {
+    switch (type) {
+      case 'security_or_privacy_risk':
+        return `A privacy or security boundary was stated as a requirement at "${subject}".`;
+      case 'scope_drift':
+        return `A scope boundary was stated at "${subject}".`;
+      case 'format_violation':
+        return `A required output format was stated at "${subject}".`;
+      default:
+        return `A ${type.replace(/_/g, ' ')} concern was raised at "${subject}".`;
+    }
+  }
   const correction = truncate(correctionNode?.title || 'a later correction', 90);
   switch (type) {
     case 'ignored_constraint':

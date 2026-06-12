@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Turn AI coding sessions into regression-ready prompt lineage, failure analysis, eval cases, and handoff memory.",
   "keywords": [
     "claude-code",
