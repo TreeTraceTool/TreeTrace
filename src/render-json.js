@@ -25,6 +25,7 @@ export function renderJson(tree, opts = {}) {
     },
     stats: {
       prompts: stats.promptCount,
+      rawPrompts: stats.rawPromptCount,
       sessions: stats.sessionCount,
       days: stats.days,
       corrections: stats.corrections,

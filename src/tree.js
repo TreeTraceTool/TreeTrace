@@ -120,6 +120,7 @@ function computeStats(sessions, nodes) {
 
   return {
     promptCount: nodes.length,
+    rawPromptCount: sessions.reduce((acc, s) => acc + (s.prompts ? s.prompts.length : 0), 0),
     sessionCount: sessions.filter((s) => s.prompts.length).length,
     byKind,
     corrections: byKind['correction'] || 0,

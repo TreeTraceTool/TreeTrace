@@ -30,7 +30,13 @@ export function renderReportMarkdown(tree, opts = {}) {
 
   lines.push('## Session summary');
   lines.push('');
-  lines.push(`- Prompts: ${tree.stats.promptCount}`);
+  const { promptCount, rawPromptCount } = tree.stats;
+  const foldedTurns = (rawPromptCount || promptCount) - promptCount;
+  lines.push(
+    foldedTurns > 0
+      ? `- Prompts: ${promptCount} (merged from ${rawPromptCount} raw turns; ${foldedTurns} continuation or duplicate turn${foldedTurns === 1 ? '' : 's'} folded in)`
+      : `- Prompts: ${promptCount}`
+  );
   lines.push(`- Sessions: ${tree.stats.sessionCount}`);
   if (tree.stats.days) lines.push(`- Active span: ${plural(tree.stats.days, 'day')}`);
   if (tree.stats.corrections) lines.push(`- Corrections: ${tree.stats.corrections}`);
