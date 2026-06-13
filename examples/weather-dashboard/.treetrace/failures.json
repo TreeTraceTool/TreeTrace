@@ -2,7 +2,7 @@
   "schemaVersion": "0.2",
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-12T05:59:45.796Z"
+    "generatedAt": "2026-06-13T17:38:19.126Z"
   },
   "summary": {
     "totalFailureSignals": 1,
@@ -12,6 +12,16 @@
         "count": 1
       }
     ],
+    "tierCounts": {
+      "verified": 0,
+      "high": 0,
+      "confirmed": 1,
+      "inferred": 0
+    },
+    "models": [
+      "assistant-model"
+    ],
+    "thinkingBlocks": 0,
     "correctionChains": 1,
     "evalCandidates": 1,
     "lessons": 1
@@ -20,12 +30,14 @@
     {
       "id": "failure_001",
       "type": "overbuilt_solution",
-      "confidence": 0.78,
+      "tier": "confirmed",
+      "confidence": 0.82,
+      "model": "assistant-model",
       "firstSeenNodeId": "node_002",
       "correctedByNodeId": "node_003",
       "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\".",
       "evidence": "User said: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
-      "lesson": "Future agents should prefer the smallest implementation that satisfies the corrected product direction. Evidence: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "lesson": "Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
       "evalCandidate": true
     }
   ],
@@ -36,7 +48,7 @@
       "correctionNodeId": "node_003",
       "resolvedNodeId": "node_004",
       "failureType": "overbuilt_solution",
-      "confidence": "medium",
+      "confidence": "high",
       "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\"."
     }
   ]

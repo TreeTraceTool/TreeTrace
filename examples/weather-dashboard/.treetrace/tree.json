@@ -2,16 +2,17 @@
   "schemaVersion": "0.2",
   "generator": {
     "name": "treetrace",
-    "version": "0.2.0",
+    "version": "0.5.0",
     "url": "https://github.com/Tree-Trace/treetrace"
   },
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-12T05:59:45.796Z",
+    "generatedAt": "2026-06-13T17:38:19.126Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
     "prompts": 4,
+    "rawPrompts": 5,
     "sessions": 1,
     "days": 1,
     "corrections": 1,
@@ -77,7 +78,9 @@
       "failureSignals": [
         {
           "type": "overbuilt_solution",
-          "confidence": 0.78,
+          "tier": "confirmed",
+          "confidence": 0.82,
+          "model": "assistant-model",
           "evidence": "User said: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
           "resolvedBy": "node_003"
         }
@@ -153,7 +156,7 @@
       "correctionNodeId": "node_003",
       "resolvedNodeId": "node_004",
       "failureType": "overbuilt_solution",
-      "confidence": "medium",
+      "confidence": "high",
       "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\"."
     }
   ],
@@ -162,11 +165,9 @@
       "id": "lesson_001",
       "title": "Avoid overbuilding beyond the requested shape",
       "nodeIds": [
-        "node_002",
-        "node_003",
-        "node_004"
+        "node_002"
       ],
-      "text": "Future agents should prefer the smallest implementation that satisfies the corrected product direction. Evidence: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\""
+      "text": "Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\""
     }
   ],
   "evalCandidates": [

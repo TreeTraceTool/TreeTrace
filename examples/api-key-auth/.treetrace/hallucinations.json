@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "0.2",
+  "project": {
+    "name": "api-key-auth",
+    "generatedAt": "2026-06-13T17:43:29.893Z"
+  },
+  "verifiedAgainstWorkingTree": true,
+  "manifestSeen": true,
+  "summary": {
+    "total": 2,
+    "byCategory": {
+      "hallucinated_file_or_path": 1,
+      "hallucinated_import_or_package": 1
+    }
+  },
+  "hallucinations": [
+    {
+      "category": "hallucinated_file_or_path",
+      "reference": "./src/middleware/rateLimit.js",
+      "nodeId": "node_001",
+      "evidence": "Referenced \"./src/middleware/rateLimit.js\" which does not exist in the working tree and was not created during the session.",
+      "evalCandidate": {
+        "type": "reference_existence_check",
+        "task": "Verify a file or path exists in the working tree before editing or relying on it.",
+        "target": "./src/middleware/rateLimit.js"
+      }
+    },
+    {
+      "category": "hallucinated_import_or_package",
+      "reference": "jsonwebtoken",
+      "nodeId": "node_001",
+      "evidence": "Imported \"jsonwebtoken\" (js) which is not a declared dependency or a standard-library module.",
+      "evalCandidate": {
+        "type": "import_existence_check",
+        "task": "Verify an import or package is declared as a dependency before relying on it.",
+        "target": "jsonwebtoken"
+      }
+    }
+  ],
+  "note": "File and path existence and import and package declaration are checked deterministically against the working tree and manifests. Per-symbol and per-API resolution inside a module is not attempted."
+}

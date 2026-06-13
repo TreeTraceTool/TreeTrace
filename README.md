@@ -267,4 +267,9 @@ You may use, modify, and distribute TreeTrace for any purpose, including commerc
 
 ---
 
-See [examples/](examples/) for a full set of generated artifacts. The Markdown tree is one artifact among several: the main product is structured, local, eval-ready knowledge about how agents fail and how humans correct them.
+See [examples/](examples/) for two full sets of generated artifacts, produced by running the CLI with no hand-editing:
+
+- [examples/weather-dashboard](examples/weather-dashboard) shows lineage and the redaction gate on a clean session.
+- [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md) and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.
+
+The Markdown tree is one artifact among several: the main product is structured, local, eval-ready knowledge about how agents fail and how humans correct them.

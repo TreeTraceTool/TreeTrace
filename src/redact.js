@@ -121,7 +121,8 @@ export function scanText(text) {
   while ((m = ENTROPY_CANDIDATE_RE.exec(scanInput)) !== null) {
     const tok = m[0];
     if (HEX_RE.test(tok) || VERSION_LIKE_RE.test(tok)) continue;
-    if (!/[A-Z]/.test(tok) || !/[a-z]/.test(tok) || !/[0-9]/.test(tok)) continue;
+    const classes = (/[A-Z]/.test(tok) ? 1 : 0) + (/[a-z]/.test(tok) ? 1 : 0) + (/[0-9]/.test(tok) ? 1 : 0);
+    if (classes < 2) continue;
     if (shannonEntropy(tok) < 4.4) continue;
     const start = m.index;
     if (seenSpans.some(([s, e]) => start >= s && start < e)) continue;

@@ -21,3 +21,25 @@ jobs:
           node bin/treetrace.js --file test/fixtures/synthetic-session.jsonl --dir "$RUNNER_TEMP" --redact-auto --quiet
           grep -q "REDACTED" "$RUNNER_TEMP/PROMPT_TREE.md"
           ! grep -q "sk-ant-" "$RUNNER_TEMP/PROMPT_TREE.md"
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: bin is executable after checkout
+        run: test -x bin/treetrace.js
+      - name: direct execution works
+        run: ./bin/treetrace.js --version
+      - name: pack and install the tarball into a temp project
+        run: |
+          set -euo pipefail
+          TARBALL="$(npm pack --silent)"
+          APP="$RUNNER_TEMP/consumer"
+          mkdir -p "$APP"
+          cd "$APP"
+          npm init -y >/dev/null 2>&1
+          npm install "$GITHUB_WORKSPACE/$TARBALL"
+          npx --no-install treetrace --version

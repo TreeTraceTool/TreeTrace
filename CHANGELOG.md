@@ -2,17 +2,6 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
-## Unreleased
-
-### Security
-
-- Redaction now catches generic secret assignments whose quoted value contains escaped characters, such as the serialized JSON form `{"api_key":"line1\nline2"}` with a literal backslash, an escaped quote, an escaped tab, or an escaped backslash. Serialized JSON is a common way for multiline and escaped secret values to appear in transcripts, and these shapes previously reached written artifacts even under `--redact-auto`.
-
-### Fixed
-
-- The hallucination detector no longer reports ordinary dotted code symbols such as `JSON.parse`, `params.name`, `test.skip`, and `describe.skip` as missing file paths. A dotted token with no slash is only treated as a file reference when its extension is a known file extension, so member expressions are left alone while genuine paths such as `src/missing.ts` are still flagged.
-- The hallucination detector now recognizes common extensionless file references, including `Dockerfile`, `Makefile`, `README`, `.env`, and slash-containing local paths such as `src/route`. Known filename words are only flagged when a file-operation verb is nearby, which keeps prose mentions from becoming false positives.
-
 ## 0.5.0 - 2026-06-13
 
 ### Added
@@ -27,6 +16,8 @@ Notable changes to TreeTrace. The format follows Keep a Changelog, and the proje
 - A prior `keep` decision in `.treetrace/redactions.json` is no longer honored for high or medium findings under `--redact-auto`, non-interactive (non-TTY) runs, or the MCP server. A `keep` is only honored inside an interactive terminal session, so a preseeded redactions file in an untrusted repository can no longer cause a raw secret to be emitted.
 - The hallucination detector and MCP `security_summary` no longer stat absolute paths or `../` references outside the project directory, removing a filesystem existence oracle.
 - Claude session auto-discovery validates each session's recorded `cwd` against the target directory, so a different project whose path munges to the same storage directory name is no longer read.
+- Redaction now catches generic secret assignments whose quoted value contains escaped characters, such as the serialized JSON form `{"api_key":"line1\nline2"}` with a literal backslash, an escaped quote, an escaped tab, or an escaped backslash. Serialized JSON is a common way for multiline and escaped secret values to appear in transcripts, and these shapes previously reached written artifacts even under `--redact-auto`.
+- The high-entropy fallback now catches a long secret made only of lowercase letters and digits (no uppercase), such as a bare token pasted in prose. The previous rule required all three character classes, so a high-entropy lowercase-and-digit token could reach a written artifact; the entropy threshold still keeps ordinary identifiers, UUIDs, and paths from being flagged.
 
 ### Fixed
 
@@ -34,6 +25,10 @@ Notable changes to TreeTrace. The format follows Keep a Changelog, and the proje
 - Risky-command detection covers `rm -fr`, `rm -r -f`, `chmod -R 777`, `chmod 0777`, `curl | sudo bash`, `curl | zsh`, `bash <(curl ...)`, `DROP SCHEMA`, and bare `TRUNCATE`. Test-disable detection covers `test.skip`, `describe.skip`, `it.skip`, `xit`, and similar framework skip and removal idioms.
 - Value-taking options (`--from`, `--dir`, `--out`, `--report-file`, `--since`) reject a missing value or a value that begins with `--`, so a typo no longer writes a file named after a flag. `--since` requires a real date and applies only to timestamped sessions. `--stdin --from claude` is rejected with a clear message.
 - `--handoff` persists redaction decisions to `.treetrace/redactions.json` when any were made.
+- The hallucination detector no longer reports ordinary dotted code symbols such as `JSON.parse`, `params.name`, `test.skip`, and `describe.skip` as missing file paths. A dotted token with no slash is only treated as a file reference when its extension is a known file extension, so member expressions are left alone while genuine paths such as `src/missing.ts` are still flagged.
+- The hallucination detector now recognizes common extensionless file references, including `Dockerfile`, `Makefile`, `README`, `.env`, and slash-containing local paths such as `src/route`. Known filename words are only flagged when a file-operation verb is nearby, which keeps prose mentions from becoming false positives.
+- The hallucination detector no longer reports `process.env` as a missing file. A bare `name.env` token with no slash is treated as a member expression, while genuine `.env` files and `path/to/file.env` references are still resolved.
+- A relative `require('./x')` or dynamic `import('./x')` is no longer reported as a missing import named `.`. Relative and local module specifiers are skipped before the package root is taken, and a genuinely missing relative file is still flagged as a file reference.
 
 ## 0.4.1 - 2026-06-13
 

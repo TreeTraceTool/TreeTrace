@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "0.2",
+  "project": {
+    "name": "api-key-auth",
+    "generatedAt": "2026-06-13T17:43:29.639Z"
+  },
+  "summary": {
+    "totalFailureSignals": 3,
+    "topFailureTypes": [
+      {
+        "type": "dependency_or_environment_mismatch",
+        "count": 1
+      },
+      {
+        "type": "security_or_privacy_risk",
+        "count": 1
+      },
+      {
+        "type": "user_frustration",
+        "count": 1
+      }
+    ],
+    "tierCounts": {
+      "verified": 0,
+      "high": 1,
+      "confirmed": 2,
+      "inferred": 0
+    },
+    "models": [
+      "assistant-model"
+    ],
+    "thinkingBlocks": 0,
+    "correctionChains": 2,
+    "evalCandidates": 3,
+    "lessons": 3
+  },
+  "failures": [
+    {
+      "id": "failure_001",
+      "type": "dependency_or_environment_mismatch",
+      "tier": "confirmed",
+      "confidence": 0.82,
+      "model": "assistant-model",
+      "firstSeenNodeId": "node_001",
+      "correctedByNodeId": "node_002",
+      "summary": "A possible dependency or environment mismatch occurred near \"Add API key authentication to the /admin route in our Express app.\"; corrected by \"No, do not hardcode the secret in the source.\".",
+      "evidence": "User said: \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "lesson": "Future agents should validate environment assumptions before choosing dependencies or runtime paths. Specifically: User said: \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_002",
+      "type": "security_or_privacy_risk",
+      "tier": "high",
+      "confidence": 0.84,
+      "model": "assistant-model",
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": null,
+      "summary": "An agent action touched auth, secrets, or access control near \"The auth tests are failing.\".",
+      "evidence": "Agent action touched risky-command: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
+      "lesson": "Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_003",
+      "type": "user_frustration",
+      "tier": "confirmed",
+      "confidence": 0.82,
+      "model": "assistant-model",
+      "firstSeenNodeId": "node_001",
+      "correctedByNodeId": "node_004",
+      "summary": "User frustration signaled that the prior path near \"Add API key authentication to the /admin route in our Express app.\" was not meeting expectations.",
+      "evidence": "User said: \"Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.\"",
+      "lesson": "Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course. Specifically: User said: \"Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.\"",
+      "evalCandidate": true
+    }
+  ],
+  "correctionChains": [
+    {
+      "id": "chain_001",
+      "failureNodeId": "node_001",
+      "correctionNodeId": "node_002",
+      "resolvedNodeId": "node_004",
+      "failureType": "dependency_or_environment_mismatch",
+      "confidence": "high",
+      "summary": "A possible dependency or environment mismatch occurred near \"Add API key authentication to the /admin route in our Express app.\"; corrected by \"No, do not hardcode the secret in the source.\"."
+    },
+    {
+      "id": "chain_002",
+      "failureNodeId": "node_001",
+      "correctionNodeId": "node_004",
+      "resolvedNodeId": null,
+      "failureType": "user_frustration",
+      "confidence": "high",
+      "summary": "User frustration signaled that the prior path near \"Add API key authentication to the /admin route in our Express app.\" was not meeting expectations."
+    }
+  ]
+}

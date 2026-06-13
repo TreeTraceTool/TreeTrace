@@ -181,6 +181,23 @@ test('redaction: bare hex tokens (32+ chars) are detected, lower and upper case'
   assert.equal(shadowScan(cleaned, {}).length, 0, 'shadow scan should be clean after hex redaction');
 });
 
+test('redaction: high-entropy lowercase-and-digit token (no uppercase) is caught in prose', () => {
+  const token = 'abcdefg0123456789hijklmnop4567qrstuv';
+  const hits = scanText(`the access token is ${token} now`).map((f) => f.ruleId);
+  assert.ok(hits.includes('high-entropy-token'), `high-entropy token missed (got ${hits})`);
+});
+
+test('redaction: uuids and long lowercase identifiers are not flagged as high-entropy', () => {
+  for (const benign of [
+    '8400e29b-1d4f-4a6c-9b2e-7f3a1c5d8e90',
+    'src/components/dashboard/widgets/chartwidget',
+    'MAX_RETRY_ATTEMPTS_BEFORE_GIVING_UP_2',
+  ]) {
+    const hits = scanText(benign).filter((f) => f.ruleId === 'high-entropy-token');
+    assert.equal(hits.length, 0, `false positive high-entropy flag on ${benign}`);
+  }
+});
+
 test('redaction: end-to-end hex secret leaves no raw hex in any artifact', async () => {
   const lower = '6881f8290266f4cc939959917f893a2a88787eb24bbcb6b9c37594c72bf448c3';
   const upper = lower.toUpperCase();
@@ -866,6 +883,40 @@ test('hallucinations: extensionless files under dot-directories are flagged when
     assert.ok(files.includes('.github/workflows/ci'), 'nested dot-directory path should be flagged');
     assert.ok(files.includes('.husky/pre-commit'), 'hyphenated dot-directory path should be flagged');
     assert.ok(!files.includes('JSON.parse') && !files.includes('test.skip'), 'dotted code symbols must not be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: process.env is not flagged as a missing file', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'Read the API key from process.env instead of hardcoding it.',
+      title: 'use env var', actions: [],
+    };
+    const result = detectHallucinations({ nodes: [root] }, dir);
+    const files = result.hallucinations.filter((h) => h.category === 'hallucinated_file_or_path').map((h) => h.reference);
+    assert.ok(!files.includes('process.env'), `process.env must not be flagged as a file (got ${files})`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: a relative require is not flagged as an import, but the missing file is', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'Wire it up.', title: 'wire',
+      actions: [{ tool: 'Edit', file: 'src/index.js', input: "const limiter = require('./middleware/rateLimit.js');", command: null, model: 'm' }],
+    };
+    const result = detectHallucinations({ nodes: [root] }, dir);
+    const imports = result.hallucinations.filter((h) => h.category === 'hallucinated_import_or_package').map((h) => h.reference);
+    const files = result.hallucinations.filter((h) => h.category === 'hallucinated_file_or_path').map((h) => h.reference);
+    assert.ok(!imports.includes('.'), 'a relative require must not be reduced to a "." import');
+    assert.ok(files.includes('./middleware/rateLimit.js') || files.includes('middleware/rateLimit.js'), `the missing relative file should still be flagged (got ${files})`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

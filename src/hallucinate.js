@@ -32,6 +32,8 @@ const KNOWN_FILE_EXTENSIONS = new Set([
   'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'pdf', 'proto', 'tf', 'tfvars',
 ]);
 
+const AMBIGUOUS_BARE_EXTENSIONS = new Set(['env']);
+
 const KNOWN_EXTENSIONLESS_FILES = new Set([
   'dockerfile', 'makefile', 'readme', 'license', 'licence', 'notice', 'changelog',
   'authors', 'contributing', 'codeowners', 'procfile', 'rakefile', 'gemfile',
@@ -156,7 +158,9 @@ function looksLikeFileToken(tok) {
   const ext = tokenExtension(tok);
   if (!ext || ext.length > 10) return false;
   if (hasSlash(tok)) return true;
-  return KNOWN_FILE_EXTENSIONS.has(ext);
+  if (!KNOWN_FILE_EXTENSIONS.has(ext)) return false;
+  if (AMBIGUOUS_BARE_EXTENSIONS.has(ext) && !tok.startsWith('.')) return false;
+  return true;
 }
 
 function looksLikeExtensionlessFile(tok, context) {
@@ -248,6 +252,7 @@ function collectImportReferences(tree) {
   const seen = new Set();
   const push = (spec, lang, nodeId) => {
     if (!spec) return;
+    if (isRelativeOrLocalSpec(spec)) return;
     const root = packageRoot(spec);
     if (!root) return;
     const key = `${lang}:${root}`;

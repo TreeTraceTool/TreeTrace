@@ -1,0 +1,18 @@
+{
+  "schemaVersion": "0.2",
+  "project": {
+    "name": "weather-dashboard",
+    "generatedAt": "2026-06-13T17:38:19.354Z"
+  },
+  "verifiedAgainstWorkingTree": true,
+  "manifestSeen": false,
+  "summary": {
+    "total": 0,
+    "byCategory": {
+      "hallucinated_file_or_path": 0,
+      "hallucinated_import_or_package": 0
+    }
+  },
+  "hallucinations": [],
+  "note": "File and path existence and import and package declaration are checked deterministically against the working tree and manifests. Per-symbol and per-API resolution inside a module is not attempted."
+}
