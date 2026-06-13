@@ -151,7 +151,11 @@ function ingestUser(session, rec) {
   }
 
   const classification = classifySpecialUserText(trimmed);
-  if (classification === 'meta') return;
+  if (classification === 'meta') {
+    const recovered = stripWrapperMeta(trimmed);
+    if (!recovered || recovered === trimmed) return;
+    trimmed = recovered;
+  }
   if (classification === 'compact-continuation') {
     session.isContinuation = true;
     return;
@@ -289,6 +293,15 @@ function flattenUserContent(content) {
 
 const COMPACT_CONTINUATION_RE =
   /^this session is being continued from a previous conversation/i;
+
+function stripWrapperMeta(text) {
+  return String(text || '')
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
+    .replace(/<task-notification>[\s\S]*?<\/task-notification>/gi, '')
+    .replace(/<system-reminder>[\s\S]*$/i, '')
+    .replace(/<task-notification>[\s\S]*$/i, '')
+    .trim();
+}
 
 export function classifySpecialUserText(text) {
   if (COMPACT_CONTINUATION_RE.test(text)) return 'compact-continuation';
