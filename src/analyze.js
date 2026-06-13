@@ -491,7 +491,7 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   return lines.join('\n');
 }
 
-function isStrategicDirection(node) {
+export function isStrategicDirection(node) {
   const text = String(node.text || '').trim();
   if (!text) return false;
   if (REMEDIATION_RE.test(text) || APOLOGY_RE.test(text)) return false;

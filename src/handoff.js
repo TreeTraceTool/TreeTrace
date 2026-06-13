@@ -1,5 +1,5 @@
 import { truncate, escapeMd } from './util.js';
-import { analyzeTree } from './analyze.js';
+import { analyzeTree, isStrategicDirection } from './analyze.js';
 
 export function renderHandoff(tree, opts = {}) {
   const { projectName } = opts;
@@ -37,7 +37,9 @@ export function renderHandoff(tree, opts = {}) {
   }
   lines.push('');
 
-  const decisions = accepted.filter((n) => n.kind === 'direction' || n.kind === 'scope-change');
+  const decisions = accepted.filter(
+    (n) => (n.kind === 'direction' || n.kind === 'scope-change') && isStrategicDirection(n)
+  );
   if (decisions.length) {
     lines.push('## Accepted decisions (in order)');
     lines.push('');
