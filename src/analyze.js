@@ -50,6 +50,26 @@ const STOPWORDS = new Set([
   'when', 'where', 'which', 'will', 'about', 'agent', 'make', 'made', 'show', 'look',
 ]);
 
+const CONSTRAINT_PER_NODE_CAP = 3;
+const CONSTRAINT_LIST_CAP = 10;
+const CONSTRAINT_CLAUSE_MAX = 160;
+const CONSTRAINT_DIRECTIVE_RE =
+  /\b(?:no|don'?t|do not|never|must(?: not)?|always|only|make sure|ensure|avoid|keep it|keep the|stay|don'?t add|do not add|no longer|stop|without|not a|never use|never add)\b/i;
+const CONSTRAINT_DESCRIPTIVE_RE =
+  /\b(?:i (?:don'?t|do not|can'?t|cannot)\b[^.]*\b(?:see|know|understand|think|see)|do you|does this|is this|why (?:do|does|is|are)|what (?:url|do|is|are)|how (?:do|does|can)|can you|could you|would (?:fable|it)|i (?:like|agree|see|don'?t see)\b)/i;
+const CONSTRAINT_NAMED = [
+  { re: /\b(?:no|don'?t add|do not add|without|never add)\b[^.]{0,20}\b(?:in[\s-]?line)\s+(?:code\s+)?comments?\b/i, label: 'No inline code comments in shipped code' },
+  { re: /\b(?:no|without|avoid)\b[^.]{0,30}\bem[\s-]?dash/i, label: 'No em dashes' },
+  { re: /\bem[\s-]?dash(?:es)?\b[^.]{0,30}\b(?:no|avoid|never|remove|don'?t)\b/i, label: 'No em dashes' },
+  { re: /\b(?:keep|stays?|still says?|must be|use)\b[^.]{0,20}\bapache\b/i, label: 'License must stay Apache' },
+  { re: /\bapache\b[^.]{0,20}\b(?:licens|2\.0)\b/i, label: 'License must stay Apache' },
+  { re: /\b(?:zero|no)[\s-]?(?:new\s+)?dependenc(?:y|ies)\b/i, label: 'Zero dependencies' },
+  { re: /\b(?:local[\s-]?(?:first|only)|no\s+(?:network|telemetry|uploads?|cloud))\b/i, label: 'Local-only, no network or telemetry' },
+  { re: /\b(?:don'?t|do not|never)\b[^.]{0,30}\b(?:expose|leak)\b/i, label: 'Do not expose or leak secrets' },
+  { re: /\bnarrow(?:ing)?\b[^.]{0,30}\bnot\b[^.]{0,20}\b(?:adding|features?)\b/i, label: 'Narrow the product, do not add features' },
+  { re: /\b(?:no\s+ai|ai[\s-]?(?:generated|authored|written|tell))\b/i, label: 'No AI-authorship tells' },
+];
+
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
@@ -354,9 +374,9 @@ export function renderMemoryMarkdown(tree, opts = {}) {
 
   lines.push('## Constraints the user enforced');
   lines.push('');
-  const constraints = nodes.filter((n) => live(n) && (n.kind === 'correction' || n.kind === 'scope-change'));
+  const constraints = extractConstraints(nodes);
   if (constraints.length) {
-    for (const n of constraints.slice(0, 8)) lines.push(`- ${escapeMd(truncate(n.title, 140))}`);
+    for (const label of constraints) lines.push(`- ${escapeMd(truncate(label, 140))}`);
   } else {
     lines.push('- No explicit constraints were flagged. Follow the accepted decisions in the handoff brief.');
   }
@@ -411,6 +431,93 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   lines.push('');
 
   return lines.join('\n');
+}
+
+function constraintClauses(text) {
+  return String(text || '')
+    .split(/(?:[.!?\n]+|\s*;\s*|\s+-\s+|,\s+(?=(?:no|don'?t|do not|never|must|always|only|keep|ensure|make sure|avoid|stay)\b))/i)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+}
+
+function constraintPhrase(clause) {
+  let phrase = clause;
+  const cue = phrase.search(
+    /\b(?:no|don'?t|do not|never|must(?: not)?|always|only|make sure|ensure|avoid|keep it|keep the|stay|without)\b/i
+  );
+  if (cue > 0) phrase = phrase.slice(cue);
+  phrase = phrase.replace(/^(?:and|also|but|so|then|please|okay|ok|yes|lol)\b[\s,]*/i, '').trim();
+  phrase = phrase.replace(/[\s,;:.!?-]+$/g, '').trim();
+  if (phrase.length > CONSTRAINT_CLAUSE_MAX) phrase = truncate(phrase, CONSTRAINT_CLAUSE_MAX);
+  return phrase;
+}
+
+function constraintKey(label) {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, '')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .sort()
+    .join(' ');
+}
+
+function extractConstraintsFromNode(node) {
+  const text = node.text || '';
+  if (!text) return [];
+  const found = [];
+  const seenLocal = new Set();
+  const push = (label, weight) => {
+    const key = constraintKey(label);
+    if (!key || seenLocal.has(key)) return;
+    seenLocal.add(key);
+    found.push({ label, key, weight });
+  };
+
+  for (const named of CONSTRAINT_NAMED) {
+    if (named.re.test(text)) push(named.label, 3);
+  }
+
+  for (const clause of constraintClauses(text)) {
+    if (found.length >= CONSTRAINT_PER_NODE_CAP) break;
+    if (clause.length < 6 || clause.length > 220) continue;
+    if (!CONSTRAINT_DIRECTIVE_RE.test(clause)) continue;
+    if (CONSTRAINT_DESCRIPTIVE_RE.test(clause)) continue;
+    if (/\?\s*$/.test(clause)) continue;
+    if (CONSTRAINT_NAMED.some((n) => n.re.test(clause))) continue;
+    const phrase = constraintPhrase(clause);
+    if (phrase.length < 6) continue;
+    push(phrase.charAt(0).toUpperCase() + phrase.slice(1), 1);
+  }
+
+  return found.slice(0, CONSTRAINT_PER_NODE_CAP);
+}
+
+function extractConstraints(nodes) {
+  const byKey = new Map();
+  nodes.forEach((node, order) => {
+    if (node.status === 'abandoned') return;
+    for (const c of extractConstraintsFromNode(node)) {
+      const existing = byKey.get(c.key);
+      if (existing) {
+        existing.count += 1;
+        existing.weight = Math.max(existing.weight, c.weight);
+        if (order >= existing.order) {
+          existing.order = order;
+          if (c.weight >= existing.bestWeight) {
+            existing.label = c.label;
+            existing.bestWeight = c.weight;
+          }
+        }
+      } else {
+        byKey.set(c.key, { label: c.label, count: 1, weight: c.weight, bestWeight: c.weight, order });
+      }
+    }
+  });
+  return [...byKey.values()]
+    .sort((a, b) => b.weight - a.weight || b.count - a.count || b.order - a.order)
+    .slice(0, CONSTRAINT_LIST_CAP)
+    .map((c) => c.label);
 }
 
 function inferSignals(node) {

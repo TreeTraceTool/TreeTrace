@@ -299,6 +299,32 @@ test('analysis: a long pasted spec listing security categories does not over-fir
   assert.equal(sec.length, 0, 'a long pasted spec should not mint a stated-intent security signal');
 });
 
+test('analysis: the constraints section extracts directive requirements and never reports none when constraints exist', () => {
+  const root = { id: 'node_001', text: 'build the cli', title: 'build the cli', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const rule = {
+    id: 'node_002',
+    text: 'no em dashes and do not add inline code comments, and keep it Apache licensed',
+    title: 'no em dashes', kind: 'direction', status: 'accepted', parent: root, actions: [],
+  };
+  const memory = renderMemoryMarkdown({ nodes: [root, rule] });
+  const block = memory.slice(memory.indexOf('## Constraints the user enforced'), memory.indexOf('## Lessons'));
+  assert.ok(/no em dashes/i.test(block), 'em-dash constraint should be listed');
+  assert.ok(/inline code comments/i.test(block), 'inline-comment constraint should be listed');
+  assert.ok(/apache/i.test(block), 'license constraint should be listed');
+  assert.ok(!/No explicit constraints were flagged/.test(block), 'must not claim none when constraints exist');
+});
+
+test('analysis: a benign descriptive prompt with no directive yields no false constraints', () => {
+  const root = { id: 'node_001', text: 'build the cli', title: 'build the cli', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const benign = {
+    id: 'node_002', text: 'I like where we stand so far and I think this looks good to me',
+    title: 'looks good', kind: 'direction', status: 'accepted', parent: root, actions: [],
+  };
+  const memory = renderMemoryMarkdown({ nodes: [root, benign] });
+  const block = memory.slice(memory.indexOf('## Constraints the user enforced'), memory.indexOf('## Lessons'));
+  assert.ok(/No explicit constraints were flagged/.test(block), 'benign descriptive text should not mint constraints');
+});
+
 test('analysis: a keyword-only correction stays in the inferred or confirmed tier, not verified', () => {
   const root = { id: 'node_001', text: 'build a dashboard', title: 'build a dashboard', kind: 'root', status: 'accepted', parent: null, actions: [] };
   const corr = { id: 'node_002', text: 'no, that is overbuilt, keep it minimal', title: 'no, that is overbuilt', kind: 'correction', status: 'accepted', parent: root, actions: [] };
