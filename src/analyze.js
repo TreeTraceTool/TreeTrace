@@ -79,7 +79,8 @@ const REMEDIATION_RE = new RegExp(`${DESTRUCTIVE_RE.source}|${RECOVERY_RE.source
 
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const SECURITY_FILE_EXCLUDE_RE = /(?:^|[\\/])(?:[^\\/]*tokens?\.[a-z]+|tokenizer[^\\/]*|[^\\/]*[-_.]?token(?:izer|s)?\.(?:tsx?|jsx?|css|scss|json|svg)|semantic[-_]?tokens?[^\\/]*|design[-_]?tokens?[^\\/]*)$/i;
-const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force(?![\w-])|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
+const RISKY_CMD_RE =
+  /(?:\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*(?:rf|fr)[a-zA-Z]*\b|\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\b|\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\b|\bchmod\s+(?:-[a-zA-Z]+\s+)*0?777\b|(?:curl|wget)[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|ksh)\b|\b(?:sh|bash|zsh|dash|ksh)\s+<\(\s*(?:curl|wget)\b|--no-verify\b|--force(?![\w-])|\bDROP\s+TABLE\b|\bDROP\s+SCHEMA\b|\bTRUNCATE\s+(?:TABLE\s+)?[\w."`]+)/i;
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
 const ACCESS_CONTROL_CONTENT_RE = /\b(?:grant\s+(?:select|insert|update|delete|all)\b|setfacl|chmod\s+[0-7]{3,4}\b)/i;
 const ACCESS_CONTROL_WEAK_RE = /\b(?:rbac|access[-_]?control)\b/i;
@@ -100,6 +101,8 @@ const SECURITY_SURFACE_RULES = [
   { surface: 'deployment', re: /(?:^|[\\/])(?:Dockerfile|docker-compose[^\\/]*\.ya?ml|[^\\/]*\.(?:tf|tfvars)|wrangler\.toml|vercel\.json|netlify\.toml|fly\.toml|[^\\/]*deploy[^\\/]*)$/i },
   { surface: 'tests', re: /(?:^|[\\/])[^\\/]*(?:\.(?:test|spec)\.[a-z0-9]+|_test\.[a-z0-9]+|test_[^\\/]+)$|(?:^|[\\/])(?:tests?|__tests__|spec)[\\/]/i },
 ];
+const TEST_SKIP_API_RE =
+  /\b(?:test|it|describe|context|suite|t)\.(?:skip|only|todo)\b|\bx(?:it|describe|test|context)\s*\(|\bf(?:it|describe)\s*\(|@(?:Disabled|Ignore|Skip)\b|\bpytest\.mark\.skip\w*|\b(?:skip|disabl\w*|remov\w*|delet\w*|drop)\b[^.\n]{0,24}\b(?:e2e|integration|unit|smoke|auth)?\s*(?:tests?|specs?|suite)\b|\b(?:tests?|specs?|suite)\b[^.\n]{0,24}\b(?:disabl|skip|remov|delet|comment(?:ed)? out|turn(?:ed)? off)\w*|--no-tests?\b|--skip-tests?\b/i;
 const TEST_SKIP_RE =
   /\b(?:disabl|skip|remov|delet|comment(?:ed)? out|drop|turn(?:ed)? off|x?(?:it|describe)\.skip|--no-tests?|--skip-tests?)\w*\b[^.\n]{0,24}\btests?\b|\btests?\b[^.\n]{0,24}\b(?:disabl|skip|remov|delet|comment(?:ed)? out|turn(?:ed)? off)\w*/i;
 
@@ -116,7 +119,11 @@ export function isRiskyCommand(command) {
 }
 
 export function mentionsTestSkip(text) {
-  return typeof text === 'string' && text.length <= 4000 && TEST_SKIP_RE.test(text);
+  return (
+    typeof text === 'string' &&
+    text.length <= 4000 &&
+    (TEST_SKIP_RE.test(text) || TEST_SKIP_API_RE.test(text))
+  );
 }
 
 function securityActions(node) {

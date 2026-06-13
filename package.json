@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Turn AI coding sessions into regression-ready prompt lineage, failure analysis, eval cases, and handoff memory.",
   "keywords": [
     "claude-code",
@@ -32,7 +32,8 @@
   "files": [
     "bin",
     "src",
-    "SCHEMA.md"
+    "SCHEMA.md",
+    "NOTICE"
   ],
   "engines": {
     "node": ">=18"

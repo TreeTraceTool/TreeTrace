@@ -25,7 +25,7 @@ export const RULES = [
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
   { id: 'url-basic-auth', severity: 'medium', re: /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^/\s:@'"`]{2,256}:[^/\s@'"`]{2,256}@[^\s'"`]{1,512}/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
-  { id: 'secret-assignment', severity: 'medium', re: /\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret)\b\s*[:=]\s*(?!(?:['"]?\s*)?(?:\$\{|<|%|\*{3}|\.{3}|REDACTED|xxx+|placeholder|changeme|example|your[-_]))(?:"[^"\r\n]{8,}"|'[^'\r\n]{8,}'|[^\s'"`,;]{8,})/gi },
+  { id: 'secret-assignment', severity: 'medium', re: /["'`]?\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|token|bearer)\b["'`]?\s*[:=]\s*(?!(?:["'`]?\s*)?(?:\$\{|\$\(|<|%|\*{3}|\.{3}|REDACTED|\[REDACTED|xxx+|placeholder|changeme|example|your[-_]|null\b|true\b|false\b))(?:"[^"\\]{4,512}"|'[^'\\]{4,512}'|`[^`\\]{4,512}`|[^\s'"`,;){}]{6,512})/gi },
 
   { id: 'email', severity: 'soft', re: /\b[A-Za-z0-9._%+-]+@(?!(?:users\.noreply\.github\.com|example\.(?:com|org)))[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
   { id: 'ipv4', severity: 'soft', re: /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?!\.\d)/g },
@@ -176,14 +176,26 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
     unique.get(h).count++;
   }
 
-  const unresolved = [...unique.entries()].filter(([h]) => !decisions[h]);
-  if (!unresolved.length) return { decisions, asked: 0 };
+  const autoMode = !interactive || autoRedact;
+  let overriddenKeeps = 0;
+  if (autoMode) {
+    for (const [h, { finding }] of unique) {
+      const prior = decisions[h];
+      if (prior && prior.action === 'keep' && (finding.severity === 'high' || finding.severity === 'medium')) {
+        delete decisions[h];
+        overriddenKeeps++;
+      }
+    }
+  }
 
-  if (!interactive || autoRedact) {
+  const unresolved = [...unique.entries()].filter(([h]) => !decisions[h]);
+  if (!unresolved.length) return { decisions, asked: 0, overriddenKeeps };
+
+  if (autoMode) {
     for (const [h, { finding }] of unresolved) {
       decisions[h] = { action: 'redact', replacement: maskFor(finding), ruleId: finding.ruleId };
     }
-    return { decisions, asked: 0, autoRedacted: unresolved.length };
+    return { decisions, asked: 0, autoRedacted: unresolved.length, overriddenKeeps };
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });

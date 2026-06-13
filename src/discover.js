@@ -1,9 +1,39 @@
-import { readdirSync, statSync, existsSync } from 'node:fs';
+import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
 export function mungePath(absPath) {
   return absPath.replace(/[^A-Za-z0-9-]/g, '-');
+}
+
+const CWD_PROBE_BYTES = 65536;
+const CWD_RE = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/;
+
+export function recordedCwd(filePath) {
+  let fd;
+  try {
+    fd = openSync(filePath, 'r');
+    const buf = Buffer.alloc(CWD_PROBE_BYTES);
+    const bytes = readSync(fd, buf, 0, CWD_PROBE_BYTES, 0);
+    const head = buf.toString('utf8', 0, bytes);
+    const m = head.match(CWD_RE);
+    if (!m) return null;
+    try {
+      return JSON.parse(`"${m[1]}"`);
+    } catch {
+      return m[1];
+    }
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        closeSync(fd);
+      } catch {
+
+      }
+    }
+  }
 }
 
 export function claudeProjectsRoot() {
@@ -35,6 +65,8 @@ export function discoverSessions(projectDir) {
       } catch {
         continue;
       }
+      const cwd = recordedCwd(path);
+      if (cwd && resolve(cwd) !== abs) continue;
       sessions.push({
         path,
         sessionId: f.name.replace(/\.jsonl$/, ''),

@@ -1,5 +1,5 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { isAbsolute, join, resolve, normalize } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { truncate } from './util.js';
 
 const NODE_BUILTINS = new Set([
@@ -95,13 +95,15 @@ function packageRoot(spec) {
   return spec.split('/')[0];
 }
 
-function collectCreatedFiles(tree) {
+function collectCreatedFiles(tree, projectDir) {
   const created = new Set();
   for (const node of tree.nodes) {
     for (const a of node.actions || []) {
       if (!a.file || typeof a.file !== 'string') continue;
-      if (a.tool === 'Write' || a.tool === 'Edit' || a.tool === 'NotebookEdit') {
+      if (a.tool === 'Write') {
         created.add(normalizeFileKey(a.file));
+      } else if (a.tool === 'Edit' || a.tool === 'NotebookEdit') {
+        if (fileExists(projectDir, a.file)) created.add(normalizeFileKey(a.file));
       }
     }
   }
@@ -121,27 +123,35 @@ function looksLikeFileToken(tok) {
   return true;
 }
 
-function fileExists(projectDir, rel) {
+function withinProjectDir(projectDir, target) {
+  const root = resolve(projectDir);
+  const resolved = resolve(target);
+  return resolved === root || resolved.startsWith(root + sep);
+}
+
+function resolveInProject(projectDir, rel) {
   const clean = rel.replace(/^\.\//, '');
-  let target;
-  if (isAbsolute(clean)) {
-    target = clean;
-  } else {
-    target = resolve(projectDir, clean);
-  }
+  const target = isAbsolute(clean) ? clean : resolve(projectDir, clean);
+  if (!withinProjectDir(projectDir, target)) return null;
+  return target;
+}
+
+function fileExists(projectDir, rel) {
+  const target = resolveInProject(projectDir, rel);
+  if (!target) return true;
   try {
     if (existsSync(target)) return true;
   } catch {
 
   }
-  const base = clean.split('/').pop();
-  return globByBasename(projectDir, base, target);
+  const base = rel.replace(/^\.\//, '').split('/').pop();
+  return globByBasename(projectDir, base);
 }
 
-function globByBasename(projectDir, base, fullCandidate) {
+function globByBasename(projectDir, base) {
   try {
     const direct = join(projectDir, base);
-    if (existsSync(direct) && statSync(direct).isFile()) return true;
+    if (withinProjectDir(projectDir, direct) && existsSync(direct) && statSync(direct).isFile()) return true;
   } catch {
 
   }
@@ -212,7 +222,7 @@ export function detectHallucinations(tree, projectDir, opts = {}) {
     return { schemaVersion: '0.2', verifiedAgainstWorkingTree: false, hallucinations, summary: emptySummary() };
   }
 
-  const created = collectCreatedFiles(tree);
+  const created = collectCreatedFiles(tree, projectDir);
   const pkgNames = readPackageNames(projectDir);
   const lockNames = readLockfilePackages(projectDir);
   const pyNames = readPyRequirements(projectDir);
@@ -220,7 +230,6 @@ export function detectHallucinations(tree, projectDir, opts = {}) {
 
   for (const ref of collectFileReferences(tree)) {
     if (created.has(ref.key)) continue;
-    if (REL_PREFIX_RE.test(ref.token)) continue;
     if (fileExists(projectDir, ref.token)) continue;
     hallucinations.push({
       category: 'hallucinated_file_or_path',

@@ -185,7 +185,7 @@ This is honest about its limits. File, path, import, and package existence are s
 - `security_summary` - evidence-backed security-sensitive touches
 - `eval_candidates` - compact regression cases
 
-No tool mutates files, runs shell, reaches the network, or requires authentication. Every returned text passes the same redaction shadow scan as the file exports. Point it at a project with `--dir`, or import a transcript with `--file` or `--stdin`, exactly like a normal run.
+No tool mutates files, runs shell, reaches the network, or requires authentication. Every returned text passes the same redaction shadow scan as the file exports. Point it at a project with `--dir`, or import a transcript with `--file`. The MCP server uses stdin for its JSON-RPC transport, so `--stdin` transcript paste is not available in MCP mode; use `--file` instead.
 
 ## Redaction gate
 

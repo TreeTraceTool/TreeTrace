@@ -54,6 +54,7 @@ Options:
   --mcp                 start a read-only MCP server over stdio (same as: treetrace mcp)
   --redact-auto         redact every detected secret without prompting
   --since <YYYY-MM-DD>  only include sessions active on/after this date
+                        (timestamped sessions only; plain transcripts are excluded)
   --quiet               suppress progress output
   --version, --help
 
@@ -82,6 +83,10 @@ export async function main(argv) {
   if (opts.handoff) {
     const pack = renderHandoff(tree, renderOpts);
     assertClean(pack, decisions, 'handoff brief');
+    if (Object.keys(decisions).length) {
+      mkdirSync(ttDir, { recursive: true });
+      writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+    }
     process.stdout.write(pack);
     log(c.green(`✓ handoff brief for ${projectName} (${plural(tree.stats.promptCount, 'prompt')} distilled)`));
     return;
@@ -199,7 +204,13 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   }
 
   if (opts.since) {
-    sessions = sessions.filter((s) => !s.lastTs || s.lastTs >= opts.since);
+    sessions = sessions.filter((s) => s.lastTs && s.lastTs >= opts.since);
+    if (!sessions.length) {
+      throw new Error(
+        `no sessions on or after ${opts.since}. --since only applies to timestamped sessions; ` +
+          `plain transcripts carry no timestamps and are excluded when --since is set.`
+      );
+    }
   }
 
   const nodes = classifyPrompts(sessions);
@@ -231,10 +242,17 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   }
 
   const interactive = !forceAuto && process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
-  const { decisions, asked, autoRedacted } = await resolveFindings(findings, priorDecisions, {
+  const { decisions, asked, autoRedacted, overriddenKeeps } = await resolveFindings(findings, priorDecisions, {
     interactive,
     autoRedact: forceAuto || opts.redactAuto,
   });
+  if (overriddenKeeps) {
+    log(
+      c.yellow(
+        `re-redacted ${plural(overriddenKeeps, 'prior keep decision')} in non-interactive mode (keep is only honored in an interactive session)`
+      )
+    );
+  }
   if (autoRedacted) {
     log(
       c.yellow(
@@ -453,10 +471,21 @@ export function parseArgs(argv) {
     reportFile: null,
     since: null,
   };
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0;
+  const requireValue = (flag) => {
+    const next = argv[i + 1];
+    if (next === undefined || next.startsWith('--')) {
+      throw new Error(`${flag} requires a value`);
+    }
+    return argv[++i];
+  };
+  for (; i < argv.length; i++) {
     const a = argv[i];
     switch (a) {
       case '--file':
+        if (argv[i + 1] === undefined || argv[i + 1].startsWith('--')) {
+          throw new Error('--file requires at least one path');
+        }
         while (argv[i + 1] && !argv[i + 1].startsWith('--')) opts.files.push(argv[++i]);
         break;
       case '--stdin': opts.stdin = true; break;
@@ -476,18 +505,26 @@ export function parseArgs(argv) {
       case '--help': case '-h': opts.help = true; break;
       case '--version': case '-v': opts.version = true; break;
       case '--from':
-        opts.from = argv[++i];
+        opts.from = requireValue('--from');
         if (!TOOLS.includes(opts.from)) {
           throw new Error(`unknown --from value "${opts.from}" (expected one of: ${TOOLS.join(', ')})`);
         }
         break;
-      case '--dir': opts.dir = argv[++i]; break;
-      case '--out': opts.out = argv[++i]; break;
-      case '--report-file': opts.reportFile = argv[++i]; break;
-      case '--since': opts.since = argv[++i]; break;
+      case '--dir': opts.dir = requireValue('--dir'); break;
+      case '--out': opts.out = requireValue('--out'); break;
+      case '--report-file': opts.reportFile = requireValue('--report-file'); break;
+      case '--since':
+        opts.since = requireValue('--since');
+        if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(opts.since) || Number.isNaN(Date.parse(opts.since))) {
+          throw new Error(`--since expects a date like YYYY-MM-DD (got "${opts.since}")`);
+        }
+        break;
       default:
         throw new Error(`unknown option ${a} (try --help)`);
     }
+  }
+  if (opts.stdin && opts.from === 'claude') {
+    throw new Error('--stdin cannot be combined with --from claude: Claude Code JSONL sessions are read from files. Use --file, or omit --from to paste a plain transcript.');
   }
   return opts;
 }

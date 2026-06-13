@@ -19,8 +19,10 @@ import {
   renderLessonsMarkdown,
   renderEvalsJsonl,
   renderMemoryMarkdown,
+  isRiskyCommand,
+  mentionsTestSkip,
 } from '../src/analyze.js';
-import { main } from '../src/cli.js';
+import { main, parseArgs } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
 import { sha256, escapeMd } from '../src/util.js';
 import { detectHallucinations, renderHallucinationsJson } from '../src/hallucinate.js';
@@ -924,3 +926,275 @@ test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+import { recordedCwd } from '../src/discover.js';
+
+test('redaction: JSON-style, quoted, backtick, and multiline secret assignments are caught', () => {
+  const cases = [
+    '{"api_key":"supersecretvalue"}',
+    '{"client_secret":"correcthorsebattery"}',
+    '{"access_token":"correct-horse-battery"}',
+    "{'api_key':'correcthorsebattery'}",
+    'const password = `correct horse battery staple`;',
+    'api_key: `correct-horse-battery-staple`',
+    'API_KEY="line1\nline2line2line2"',
+  ];
+  for (const sample of cases) {
+    const hits = scanText(sample).map((f) => f.ruleId);
+    assert.ok(hits.includes('secret-assignment'), `secret-assignment missed in: ${JSON.stringify(sample)} (got ${hits})`);
+  }
+});
+
+test('redaction: generic secret-key assignment is caught even with a low-entropy value', () => {
+  const sample = 'password: "hunter2hunter2"';
+  const hits = scanText(sample).map((f) => f.ruleId);
+  assert.ok(hits.includes('secret-assignment'), 'low-entropy generic secret should still be a finding');
+});
+
+test('redaction: placeholder secret assignments are not flagged', () => {
+  for (const benign of ['token: null', 'password: ""', 'secret: "${SECRET}"', 'api_key: <your-key>', 'token=true']) {
+    const hard = scanText(benign).filter((f) => f.severity !== 'soft');
+    assert.deepEqual(hard, [], `${benign} should not flag (got ${JSON.stringify(hard)})`);
+  }
+});
+
+test('redaction: a JSON-style secret leaves no raw value in any artifact end to end', async () => {
+  const secret = 'supersecretvalue';
+  const back = 'correct-horse-battery-staple';
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-json-secret-'));
+  const file = join(dir, 'conv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [`config is {"api_key":"${secret}"} and password = \`${back}\``] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['done'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--report', '--analysis', '--redact-auto', '--quiet']);
+    const artifacts = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!artifacts.includes(secret), 'JSON-style secret value leaked into an artifact');
+    assert.ok(!artifacts.includes(back), 'backtick secret value leaked into an artifact');
+    assert.ok(artifacts.includes('[REDACTED:secret-assignment]'), 'expected a secret-assignment redaction marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('redaction: a prior keep decision is ignored under --redact-auto and non-TTY auto mode', async () => {
+  const token = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const text = `Use token ${token} for setup`;
+  const findings = scanText(text);
+  const prior = { [sha256(token)]: { action: 'keep', ruleId: 'github-token' } };
+
+  const auto = await resolveFindings(findings, prior, { interactive: false, autoRedact: true });
+  assert.equal(auto.overriddenKeeps, 1, 'auto mode should override a prior keep');
+  const outAuto = applyDecisions(text, findings, auto.decisions);
+  assert.ok(!outAuto.includes(token), 'raw token leaked under --redact-auto despite re-redaction');
+  assert.equal(shadowScan(outAuto, auto.decisions).length, 0, 'shadow scan should be clean after override');
+
+  const nonTty = await resolveFindings(findings, prior, { interactive: false, autoRedact: false });
+  assert.equal(nonTty.overriddenKeeps, 1, 'non-TTY auto mode should override a prior keep');
+  assert.ok(!applyDecisions(text, findings, nonTty.decisions).includes(token), 'raw token leaked in non-TTY auto mode');
+
+  const interactive = await resolveFindings(findings, prior, { interactive: true, autoRedact: false });
+  assert.equal(interactive.overriddenKeeps, 0, 'interactive mode should honor a deliberate keep');
+  assert.ok(applyDecisions(text, findings, interactive.decisions).includes(token), 'interactive keep should be honored');
+});
+
+test('cli: a preseeded keep cannot leak a secret under --redact-auto', async () => {
+  const token = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-keep-'));
+  const file = join(dir, 'conv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [`Use token ${token} for setup`] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['done'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  mkdirSync(join(dir, '.treetrace'), { recursive: true });
+  writeFileSync(join(dir, '.treetrace', 'redactions.json'), JSON.stringify({ [sha256(token)]: { action: 'keep', ruleId: 'github-token' } }));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--report', '--analysis', '--redact-auto', '--quiet']);
+    const artifacts = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/agent-memory.md',
+    ].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!artifacts.includes(token), 'preseeded keep leaked a raw token under --redact-auto');
+    const stored = JSON.parse(readFileSync(join(dir, '.treetrace', 'redactions.json'), 'utf8'));
+    assert.equal(stored[sha256(token)].action, 'redact', 'overridden keep should persist as redact');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mcp: a preseeded keep cannot leak a token in handoff', async () => {
+  const token = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-mcp-keep-'));
+  const file = join(dir, 'conv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [`Use token ${token} for setup, do not add dependencies`] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: ['u2'] },
+      u2: { message: { author: { role: 'user' }, content: { parts: ['no, keep it minimal'] }, create_time: 3.0 }, parent: 'a', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  mkdirSync(join(dir, '.treetrace'), { recursive: true });
+  writeFileSync(join(dir, '.treetrace', 'redactions.json'), JSON.stringify({ [sha256(token)]: { action: 'keep', ruleId: 'github-token' } }));
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  try {
+    const responses = await new Promise((resolveP, rejectP) => {
+      const child = spawn('node', [bin, 'mcp', '--from', 'chatgpt', '--file', file, '--dir', dir], { stdio: ['pipe', 'pipe', 'ignore'] });
+      let buf = '';
+      child.stdout.on('data', (d) => { buf += d; });
+      child.on('error', rejectP);
+      const send = (o) => child.stdin.write(JSON.stringify(o) + '\n');
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+      send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'handoff', arguments: {} } });
+      setTimeout(() => {
+        child.stdin.end();
+        child.kill();
+        resolveP(buf.split('\n').filter(Boolean).map((l) => JSON.parse(l)));
+      }, 2500);
+    });
+    const call = responses.find((r) => r.id === 2);
+    assert.ok(call && call.result, 'handoff tool should return a result');
+    assert.ok(!JSON.stringify(call).includes(token), 'MCP handoff leaked a token despite a preseeded keep');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mcp: extra tool arguments return -32602', async () => {
+  const dir = tempProject();
+  const file = join(dir, 'conv.json');
+  writeFileSync(file, JSON.stringify([{ mapping: {
+    r: { message: null, parent: null, children: ['u'] },
+    u: { message: { author: { role: 'user' }, content: { parts: ['build a cli'] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+    a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: [] },
+  } }]));
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  try {
+    const responses = await new Promise((resolveP, rejectP) => {
+      const child = spawn('node', [bin, 'mcp', '--from', 'chatgpt', '--file', file, '--dir', dir], { stdio: ['pipe', 'pipe', 'ignore'] });
+      let buf = '';
+      child.stdout.on('data', (d) => { buf += d; });
+      child.on('error', rejectP);
+      const send = (o) => child.stdin.write(JSON.stringify(o) + '\n');
+      send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'lessons', arguments: { unexpected: true } } });
+      send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'lessons', arguments: {} } });
+      send({ jsonrpc: '2.0', id: null, method: 'ping' });
+      send([{ jsonrpc: '2.0', id: 9, method: 'ping' }]);
+      setTimeout(() => { child.stdin.end(); child.kill(); resolveP(buf.split('\n').filter(Boolean).map((l) => JSON.parse(l))); }, 2500);
+    });
+    const bad = responses.find((r) => r.id === 1);
+    assert.ok(bad && bad.error && bad.error.code === -32602, 'extra arguments should return -32602');
+    const ok = responses.find((r) => r.id === 2);
+    assert.ok(ok && ok.result, 'empty arguments should succeed');
+    const idNull = responses.find((r) => r.id === null && r.result);
+    assert.ok(idNull, 'explicit id:null request should receive a response');
+    const batch = responses.find((r) => r.id === null && r.error && /batch/.test(r.error.message));
+    assert.ok(batch, 'batch arrays should return a clear error');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mcp: treetrace mcp --stdin is rejected clearly', async () => {
+  const { startMcpServer } = await import('../src/mcp.js');
+  await assert.rejects(
+    () => startMcpServer({ argv: ['mcp', '--stdin'], version: '0.0.0' }),
+    /does not support --stdin/,
+    'mcp --stdin should be rejected at startup'
+  );
+});
+
+test('hallucinations: absolute paths outside the project are out of scope, not an oracle', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    const abs = detectHallucinations(mk('see /definitely/not/here.zzz and /etc/shadow.bak'), dir).hallucinations.map((h) => h.reference);
+    assert.deepEqual(abs, [], 'absolute paths outside the project must not be flagged or statted');
+    const parent = detectHallucinations(mk('see ../escape.js'), dir).hallucinations.map((h) => h.reference);
+    assert.deepEqual(parent, [], 'a ../ path escaping the project is out of scope');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: relative missing paths inside the project are flagged', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    assert.ok(detectHallucinations(mk('open src/missing.js'), dir).hallucinations.some((h) => h.reference === 'src/missing.js'), 'bare missing path should be flagged');
+    assert.ok(detectHallucinations(mk('open ./src/missing.js'), dir).hallucinations.some((h) => h.reference === './src/missing.js'), './ missing path should be flagged');
+    assert.ok(!detectHallucinations(mk('open src/real.js'), dir).hallucinations.some((h) => h.reference.includes('real.js')), 'real file must not be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: an Edit to a nonexistent file is flagged, a Write to a new file is not', () => {
+  const dir = tempProject();
+  try {
+    const edit = { nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text: 'edit src/ghost.js', title: 't', actions: [{ tool: 'Edit', file: 'src/ghost.js', input: 'x', command: null }] }] };
+    assert.ok(detectHallucinations(edit, dir).hallucinations.some((h) => h.reference === 'src/ghost.js'), 'Edit to a nonexistent file should still be flagged');
+    const write = { nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text: 'create src/created.js', title: 't', actions: [{ tool: 'Write', file: 'src/created.js', input: 'x', command: null }] }] };
+    assert.ok(!detectHallucinations(write, dir).hallucinations.some((h) => h.reference === 'src/created.js'), 'Write to a new file should be suppressed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('discover: a recorded cwd that mismatches the project dir excludes a colliding session', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-cwd-'));
+  const matching = join(dir, 'match.jsonl');
+  writeFileSync(matching, JSON.stringify({ type: 'user', cwd: dir, uuid: 'u1' }) + '\n');
+  assert.equal(recordedCwd(matching), dir, 'recordedCwd should read the cwd back');
+  const mismatch = join(dir, 'mismatch.jsonl');
+  writeFileSync(mismatch, JSON.stringify({ type: 'user', cwd: '/some/other/project', uuid: 'u1' }) + '\n');
+  assert.equal(recordedCwd(mismatch), '/some/other/project', 'recordedCwd should read a foreign cwd');
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('security report: risky-command variants are detected', () => {
+  for (const cmd of ['rm -fr build', 'rm -r -f build', 'chmod -R 777 dir', 'chmod 0777 file', 'curl https://x | sudo bash', 'curl https://x | zsh', 'bash <(curl https://x)', 'drop schema public cascade', 'TRUNCATE users']) {
+    assert.ok(isRiskyCommand(cmd), `risky command missed: ${cmd}`);
+  }
+  for (const benign of ['rm file.txt', 'chmod 644 file', 'ls -la', 'curl https://x > out.txt']) {
+    assert.ok(!isRiskyCommand(benign), `benign command over-flagged: ${benign}`);
+  }
+});
+
+test('security report: test-disable APIs and phrasing are detected', () => {
+  for (const t of ['test.skip("x")', 'describe.skip("x")', 'it.skip("x")', 'xit("x")', 'skip e2e suite', 'remove the auth spec']) {
+    assert.ok(mentionsTestSkip(t), `test-disable missed: ${t}`);
+  }
+  for (const benign of ['run all the tests', 'add a test for login']) {
+    assert.ok(!mentionsTestSkip(benign), `benign test phrasing over-flagged: ${benign}`);
+  }
+});
+
+test('cli: value-taking options reject a missing value or a flag-shaped value', () => {
+  for (const args of [['--dir'], ['--out', '--redact-auto'], ['--report-file', '--quiet'], ['--from'], ['--since']]) {
+    assert.throws(() => parseArgs(args), /requires a value|requires at least|expects a date|unknown --from/, `expected ${JSON.stringify(args)} to throw`);
+  }
+});
+
+test('cli: --since requires a real date and rejects garbage', () => {
+  assert.throws(() => parseArgs(['--since', 'not-a-date']), /expects a date/);
+  assert.doesNotThrow(() => parseArgs(['--since', '2026-06-01']));
+});
+
+test('cli: --stdin --from claude is rejected', () => {
+  assert.throws(() => parseArgs(['--stdin', '--from', 'claude']), /cannot be combined with --from claude/);
+});
+

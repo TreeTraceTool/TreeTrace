@@ -7,6 +7,7 @@ import { renderSecurityReport } from './security-report.js';
 import { renderHallucinationsJson } from './hallucinate.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
+const MAX_REQUEST_BYTES = 1048576;
 
 const TOOL_DEFS = [
   {
@@ -35,15 +36,29 @@ export async function startMcpServer({ argv, version }, io = {}) {
   const input = io.input || process.stdin;
   const output = io.output || process.stdout;
   const opts = parseArgs((argv || []).filter((a) => a !== 'mcp' && a !== '--mcp'));
+  if (opts.stdin) {
+    throw new Error(
+      'treetrace mcp does not support --stdin: stdin is the JSON-RPC transport for the MCP server. ' +
+        'Point the server at a project with --dir, or import a transcript with --file.'
+    );
+  }
   const projectDir = resolve(opts.dir || process.cwd());
   const projectName = detectProjectName(projectDir);
 
   let cache = null;
+  let inFlight = null;
   const ensureTree = async () => {
     if (cache) return cache;
-    const { tree, decisions } = await loadRedactedTree(opts, projectDir, projectName, () => {}, { forceAuto: true });
-    cache = { tree, decisions, renderOpts: { projectName, version, projectDir, generatedAt: new Date().toISOString() } };
-    return cache;
+    if (!inFlight) {
+      inFlight = (async () => {
+        const { tree, decisions } = await loadRedactedTree(opts, projectDir, projectName, () => {}, { forceAuto: true });
+        cache = { tree, decisions, renderOpts: { projectName, version, projectDir, generatedAt: new Date().toISOString() } };
+        return cache;
+      })().finally(() => {
+        inFlight = null;
+      });
+    }
+    return inFlight;
   };
 
   return new Promise((resolveServer) => {
@@ -53,6 +68,10 @@ export async function startMcpServer({ argv, version }, io = {}) {
     rl.on('line', async (line) => {
       const text = line.trim();
       if (!text) return;
+      if (text.length > MAX_REQUEST_BYTES) {
+        send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request: request exceeds size limit' } });
+        return;
+      }
       let req;
       try {
         req = JSON.parse(text);
@@ -60,26 +79,37 @@ export async function startMcpServer({ argv, version }, io = {}) {
         send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } });
         return;
       }
+      if (Array.isArray(req)) {
+        send({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request: JSON-RPC batch requests are not supported' } });
+        return;
+      }
       try {
         await handle(req, send, ensureTree, version);
       } catch (err) {
-        send({
-          jsonrpc: '2.0',
-          id: req && req.id !== undefined ? req.id : null,
-          error: { code: -32603, message: `Internal error: ${err && err.message ? err.message : 'unknown'}` },
-        });
+        if (isRequestWithId(req)) {
+          send({
+            jsonrpc: '2.0',
+            id: req.id,
+            error: { code: -32603, message: `Internal error: ${err && err.message ? err.message : 'unknown'}` },
+          });
+        }
       }
     });
     rl.on('close', () => resolveServer());
   });
 }
 
+function isRequestWithId(req) {
+  return Boolean(req) && typeof req === 'object' && !Array.isArray(req) && 'id' in req;
+}
+
 async function handle(req, send, ensureTree, version) {
+  const hasId = isRequestWithId(req);
   if (!req || req.jsonrpc !== '2.0' || typeof req.method !== 'string') {
-    send({ jsonrpc: '2.0', id: req && req.id !== undefined ? req.id : null, error: { code: -32600, message: 'Invalid Request' } });
+    if (hasId) send({ jsonrpc: '2.0', id: req.id, error: { code: -32600, message: 'Invalid Request' } });
     return;
   }
-  const isNotification = req.id === undefined || req.id === null;
+  const isNotification = !hasId;
   const reply = (result) => { if (!isNotification) send({ jsonrpc: '2.0', id: req.id, result }); };
   const fail = (code, message) => { if (!isNotification) send({ jsonrpc: '2.0', id: req.id, error: { code, message } }); };
 
@@ -107,6 +137,13 @@ async function handle(req, send, ensureTree, version) {
       if (!def) {
         fail(-32602, `Unknown tool: ${name}`);
         return;
+      }
+      const args = params.arguments;
+      if (args !== undefined && args !== null) {
+        if (typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length > 0) {
+          fail(-32602, `Tool ${name} accepts no arguments`);
+          return;
+        }
       }
       const { tree, decisions, renderOpts } = await ensureTree();
       const text = renderTool(name, tree, renderOpts);
