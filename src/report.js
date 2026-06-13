@@ -37,9 +37,9 @@ export function renderReportMarkdown(tree, opts = {}) {
   if (tree.stats.abandonedBranches) lines.push(`- Abandoned branches: ${tree.stats.abandonedBranches}`);
   if (tree.stats.toolUses) lines.push(`- Tool calls: ${tree.stats.toolUses.toLocaleString()}`);
   if (tree.stats.filesTouched) lines.push(`- Files touched: ${tree.stats.filesTouched}`);
-  const tc = analysis.summary.tierCounts || { verified: 0, confirmed: 0, inferred: 0 };
+  const tc = analysis.summary.tierCounts || { verified: 0, high: 0, confirmed: 0, inferred: 0 };
   lines.push(
-    `- Failure signals: ${analysis.summary.totalFailureSignals} (verified ${tc.verified}, confirmed ${tc.confirmed}, inferred ${tc.inferred})`
+    `- Failure signals: ${analysis.summary.totalFailureSignals} (verified ${tc.verified}, high ${tc.high || 0}, confirmed ${tc.confirmed}, inferred ${tc.inferred})`
   );
   if (analysis.summary.models && analysis.summary.models.length) {
     lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
@@ -81,16 +81,17 @@ export function renderReportMarkdown(tree, opts = {}) {
     lines.push('');
   }
 
-  const securityTrail = analysis.failures.filter(
-    (f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified'
-  );
+  const securityTrail = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk');
   if (securityTrail.length) {
+    const rank = { verified: 4, high: 3, confirmed: 2, inferred: 1 };
+    securityTrail.sort((a, b) => (rank[b.tier] || 0) - (rank[a.tier] || 0));
     lines.push('## Security audit trail');
     lines.push('');
     lines.push('Every time an agent touched auth, secrets, or access control in this session:');
     lines.push('');
-    for (const f of securityTrail.slice(0, 10)) {
-      lines.push(`- ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
+    for (const f of securityTrail.slice(0, 12)) {
+      const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
+      lines.push(`- (${tag}) ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
     }
     lines.push('');
   }

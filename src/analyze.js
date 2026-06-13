@@ -21,6 +21,7 @@ const CORRECTION_HINT =
 const FRUSTRATION_HINT =
   /\b(sucks|awful|god awful|what the heck|wtf|mad|angry|frustrat|not suffic|i don'?t trust|terrible|bad)\b/i;
 const PRIVACY_HINT = /\b(secret|token|api key|apikey|password|redact|privacy|private|local-first|telemetry|upload|cloud)\b/i;
+const SECURITY_INTENT_RE = /(?:\b(?:updated?|rotat(?:e|ed|ing)|regenerat(?:e|ed)|new|replaced?|revoked?)\b[^.]{0,40}\b(?:pat|personal access token|api[- ]?key|access token|secret|credential)s?\b|\bpat\b[^.]{0,30}\b(?:updated?|rotat|regenerat|revoked?)|\b(?:make|change|set|update|use)\b[^.]{0,30}\bemail\b(?=[^.]*@|[^.]*\bcontact\b|[^.]*\bpublic\b)|\b(?:don'?t|do not|never)\b[^.]{0,20}\b(?:expose|leak)\b|\bexpose us\b|\bleak (?:anything|audit|nothing|secrets?|creds?)\b|\b(?:full )?audit\b[^.]{0,40}\b(?:repo|repos|repositor|organization|git commit|commit history)\b|\bcommit history\b[^.]{0,30}\b(?:audit|expose|leak|clean)\b|\b(?:re-?licens(?:e|ing)|licens(?:e|ing) (?:adjustment|change)|chang(?:e|ing)[^.]{0,15}licens)\b|\b(?:disabl|skip|remov|delet)\w*\b[^.]{0,15}\btests?\b|\b(?:change|modify|update|add|tighten|loosen|fix)\b[^.]{0,20}\b(?:access control|permissions?|rbac|auth flow)\b)/i;
 const SCOPE_DRIFT_HINT = /\b(don'?t add|do not add|not a web app|keep it local|too much|overbuilt|scope drift|stay focused|same format|keep .* cli|zero-config cli)\b/i;
 const TOOL_HINT = /\b(wrong tool|wrong library|use .* instead|don'?t use|dependency|package|environment|node version|python version|missing module)\b/i;
 const HALLUCINATION_HINT = /\b(hallucinat|doesn'?t exist|does not exist|no such file|fake file|fake api|made up)\b/i;
@@ -30,11 +31,21 @@ const FORMAT_HINT = /\b(format|json|markdown|schema|same structure|exact output|
 
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
+const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
+const ACCESS_CONTROL_CONTENT_RE = /\b(?:rbac|access[-_]?control|grant\s+(?:select|insert|update|delete|all)\b|setfacl|chmod\s+[0-7]{3,4}\b)/i;
 
 function securityActions(node) {
-  return (node.actions || []).filter(
-    (a) => (a.file && SECURITY_FILE_RE.test(a.file)) || (a.command && RISKY_CMD_RE.test(a.command))
-  );
+  const out = [];
+  for (const a of node.actions || []) {
+    const body = `${a.command || ''} ${a.input || ''}`;
+    let kind = null;
+    if (a.file && SECURITY_FILE_RE.test(a.file)) kind = 'file';
+    else if (SECRET_CONTENT_RE.test(body)) kind = 'credential';
+    else if (ACCESS_CONTROL_CONTENT_RE.test(body)) kind = 'access-control';
+    else if (a.command && RISKY_CMD_RE.test(a.command)) kind = 'risky-command';
+    if (kind) out.push({ action: a, kind });
+  }
+  return out;
 }
 
 export function analyzeTree(tree) {
@@ -163,16 +174,31 @@ export function analyzeTree(tree) {
   tree.nodes.forEach((node, index) => {
     const secActs = securityActions(node);
     if (secActs.length) {
-      const targets = uniq(secActs.map((a) => a.file || a.command)).slice(0, 3);
+      const hasCredential = secActs.some((s) => s.kind === 'credential' || s.kind === 'access-control' || s.kind === 'file');
+      const tier = hasCredential ? 'verified' : 'high';
+      const confidence = hasCredential ? 0.95 : 0.84;
+      const targets = uniq(secActs.map((s) => s.action.file || s.action.command || s.action.input)).slice(0, 3);
+      const kinds = uniq(secActs.map((s) => s.kind));
       addFailure({
         type: 'security_or_privacy_risk',
-        confidence: 0.95,
-        tier: 'verified',
+        confidence,
+        tier,
         failureNode: node,
         correctionNode: node.kind === 'correction' ? null : nearestCorrectionAfter(tree.nodes, index),
         resolvedNode: nearestAcceptedAfter(tree.nodes, index),
-        evidence: `Agent touched security-sensitive targets: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
+        evidence: `Agent action touched ${kinds.join(', ')}: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
         summary: `An agent action touched auth, secrets, or access control near "${truncate(node.title, 90)}".`,
+      });
+    } else if (node.text.length <= 1200 && SECURITY_INTENT_RE.test(node.text)) {
+      addFailure({
+        type: 'security_or_privacy_risk',
+        confidence: 0.7,
+        tier: 'inferred',
+        failureNode: node,
+        correctionNode: null,
+        resolvedNode: nearestAcceptedAfter(tree.nodes, index),
+        evidence: `User stated a security-sensitive intent: "${quote(node.text)}"`,
+        summary: `A security-sensitive intent was stated near "${truncate(node.title, 90)}".`,
       });
     }
 
@@ -311,6 +337,23 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   }
   lines.push('');
 
+  lines.push('## Security-sensitive actions');
+  lines.push('');
+  const security = analysis.failures
+    .filter((f) => f.type === 'security_or_privacy_risk')
+    .sort((a, b) => tierRank(b.tier) - tierRank(a.tier))
+    .slice(0, 8);
+  if (security.length) {
+    lines.push('Treat these as durable warnings; re-verify before touching the same surfaces:');
+    for (const f of security) {
+      const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
+      lines.push(`- (${tag}) ${escapeMd(truncate(f.evidence, 200))}`);
+    }
+  } else {
+    lines.push('- No security-sensitive actions or intents were detected in this session.');
+  }
+  lines.push('');
+
   lines.push('## Preferred next work');
   lines.push('');
   const accepted = nodes.filter((n) => live(n) && (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change'));
@@ -343,7 +386,6 @@ function inferSignals(node) {
   if (REPEATED_FIX_HINT.test(text)) push('repeated_failed_fix', 0.8);
   if (/\btoo much|overbuilt|scrap .* web app|too heavy\b/i.test(text)) push('overbuilt_solution', 0.78);
   if (UNDERBUILT_HINT.test(text)) push('underbuilt_solution', 0.76);
-  if (PRIVACY_HINT.test(text)) push('security_or_privacy_risk', 0.7);
   if (FORMAT_HINT.test(text)) push('format_violation', 0.68);
   if (FRUSTRATION_HINT.test(text)) push('user_frustration', 0.72);
   if (!signals.length && node.kind === 'correction') push('misunderstood_goal', 0.62);
@@ -374,11 +416,11 @@ function nearestCorrectionAfter(nodes, index) {
 }
 
 function tierRank(tier) {
-  return tier === 'verified' ? 3 : tier === 'confirmed' ? 2 : 1;
+  return tier === 'verified' ? 4 : tier === 'high' ? 3 : tier === 'confirmed' ? 2 : 1;
 }
 
 function countTiers(failures) {
-  const counts = { verified: 0, confirmed: 0, inferred: 0 };
+  const counts = { verified: 0, high: 0, confirmed: 0, inferred: 0 };
   for (const f of failures) if (counts[f.tier] !== undefined) counts[f.tier]++;
   return counts;
 }

@@ -253,6 +253,52 @@ test('analysis: a security-sensitive agent action produces a verified, model-att
   assert.ok(analysis.summary.tierCounts.verified >= 1);
 });
 
+test('analysis: a credential-handling Bash action produces a verified security signal', () => {
+  const root = {
+    id: 'node_001', text: 'deploy the marketing site', title: 'deploy the marketing site',
+    kind: 'root', status: 'accepted', parent: null,
+    actions: [{
+      tool: 'Bash', file: null,
+      command: 'set -a; . /srv/app/.env; export CLOUDFLARE_API_KEY="$DEPLOY_API_KEY"; wrangler pages deploy site',
+      input: 'set -a; . /srv/app/.env; export CLOUDFLARE_API_KEY="$DEPLOY_API_KEY"; wrangler pages deploy site',
+      model: 'claude-opus-4-8',
+    }],
+  };
+  const analysis = analyzeTree({ nodes: [root] });
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec, 'expected a security signal from the credential-handling deploy');
+  assert.equal(sec.tier, 'verified');
+  assert.ok(/credential/.test(sec.evidence), 'evidence should name the credential kind');
+  assert.ok(analysis.summary.tierCounts.verified >= 1);
+});
+
+test('analysis: a PAT-update prompt produces an inferred security signal even with no action', () => {
+  const root = { id: 'node_001', text: 'build the cli', title: 'build the cli', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const intent = {
+    id: 'node_002', text: 'I updated the PAT in the master access ref doc', title: 'I updated the PAT',
+    kind: 'direction', status: 'accepted', parent: root, actions: [],
+  };
+  const analysis = analyzeTree({ nodes: [root, intent] });
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk' && f.firstSeenNodeId === 'node_002');
+  assert.ok(sec, 'expected an inferred security signal from the PAT-update prompt');
+  assert.equal(sec.tier, 'inferred');
+  const memory = renderMemoryMarkdown({ nodes: [root, intent] });
+  assert.ok(memory.includes('## Security-sensitive actions'), 'memory should list the security section');
+  assert.ok(/stated intent/.test(memory), 'memory should tag the stated intent');
+});
+
+test('analysis: a long pasted spec listing security categories does not over-fire as intent', () => {
+  const root = { id: 'node_001', text: 'build the cli', title: 'build the cli', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const seed =
+    'Here is the full product spec to read and react to. '.repeat(20) +
+    'The detector flags when an agent changed auth logic, touched secrets, modified access control, or disabled tests. ' +
+    'More pitch copy about water, compute, investors, and the cloud. '.repeat(20);
+  const pitch = { id: 'node_002', text: seed, title: 'pasted spec', kind: 'checkpoint', status: 'accepted', parent: root, actions: [] };
+  const analysis = analyzeTree({ nodes: [root, pitch] });
+  const sec = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk');
+  assert.equal(sec.length, 0, 'a long pasted spec should not mint a stated-intent security signal');
+});
+
 test('analysis: a keyword-only correction stays in the inferred or confirmed tier, not verified', () => {
   const root = { id: 'node_001', text: 'build a dashboard', title: 'build a dashboard', kind: 'root', status: 'accepted', parent: null, actions: [] };
   const corr = { id: 'node_002', text: 'no, that is overbuilt, keep it minimal', title: 'no, that is overbuilt', kind: 'correction', status: 'accepted', parent: root, actions: [] };
