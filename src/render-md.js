@@ -36,10 +36,21 @@ export function renderMarkdown(tree, opts = {}) {
 
   lines.push('## The Path');
   lines.push('');
-  lines.push(
-    '`⬢` root · `→` direction · `↩` correction · `⚑` scope change · `◆` checkpoint · `?` question · `✗` abandoned'
-  );
-  lines.push('');
+  const kindsPresent = new Set(nodes.map((n) => n.kind));
+  const legendDefs = [
+    ['root', '`⬢` root'],
+    ['direction', '`→` direction'],
+    ['correction', '`↩` correction'],
+    ['scope-change', '`⚑` scope change'],
+    ['checkpoint', '`◆` checkpoint'],
+    ['question', '`?` question'],
+  ];
+  const legend = legendDefs.filter(([kind]) => kindsPresent.has(kind)).map(([, label]) => label);
+  if (nodes.some((n) => n.status === 'abandoned')) legend.push('`✗` abandoned');
+  if (legend.length) {
+    lines.push(legend.join(' · '));
+    lines.push('');
+  }
   for (const r of roots) renderNode(r, 0, lines, { titlesOnly });
   lines.push('');
 
