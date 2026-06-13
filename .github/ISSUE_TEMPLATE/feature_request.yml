@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an improvement or a new source adapter
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that TreeTrace makes hard today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would you like it to do? If this is a new source adapter, link the export format if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Constraints worth knowing. TreeTrace stays local-first and zero-dependency, so ideas that fit that hold up best.
+    validations:
+      required: false
