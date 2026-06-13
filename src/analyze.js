@@ -29,6 +29,27 @@ const REPEATED_FIX_HINT = /\b(still failing|still broken|again|same error|didn'?
 const UNDERBUILT_HINT = /\b(underbuilt|missing|not enough|too bare|incomplete|you skipped|you missed)\b/i;
 const FORMAT_HINT = /\b(format|json|markdown|schema|same structure|exact output|invalid)\b/i;
 
+const WORDING_SCAN_MAX_CHARS = 1200;
+const SIGNAL_PRIORITY = [
+  'ignored_constraint',
+  'hallucinated_file_or_api',
+  'wrong_tool_choice',
+  'repeated_failed_fix',
+  'scope_drift',
+  'overbuilt_solution',
+  'underbuilt_solution',
+  'dependency_or_environment_mismatch',
+  'format_violation',
+  'user_frustration',
+  'misunderstood_goal',
+];
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'this', 'that', 'with', 'you', 'your', 'are', 'was', 'has', 'have',
+  'not', 'but', 'can', 'all', 'any', 'our', 'out', 'now', 'too', 'also', 'please', 'lol',
+  'from', 'into', 'just', 'like', 'more', 'some', 'than', 'then', 'them', 'they', 'what',
+  'when', 'where', 'which', 'will', 'about', 'agent', 'make', 'made', 'show', 'look',
+]);
+
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
@@ -75,6 +96,8 @@ export function analyzeTree(tree) {
 
   const linkChain = (type, confidence, failureNode, correctionNode, resolvedNode, summary) => {
     if (!correctionNode || correctionNode.id === failureNode.id) return;
+    if (!afterFailure(correctionNode, failureNode)) return;
+    const resolved = resolvedNode && afterFailure(resolvedNode, failureNode) ? resolvedNode : null;
     if (correctionChains.some((c) => c.failureNodeId === failureNode.id && c.correctionNodeId === correctionNode.id)) {
       return;
     }
@@ -82,7 +105,7 @@ export function analyzeTree(tree) {
       id: `chain_${pad(correctionChains.length + 1)}`,
       failureNodeId: failureNode.id,
       correctionNodeId: correctionNode.id,
-      resolvedNodeId: resolvedNode?.id || null,
+      resolvedNodeId: resolved?.id || null,
       failureType: type,
       confidence: confidenceLabel(confidence),
       summary,
@@ -92,6 +115,8 @@ export function analyzeTree(tree) {
   const addFailure = ({ type, confidence, tier = 'inferred', failureNode, correctionNode, resolvedNode, evidence, summary }) => {
     if (!FAILURE_TYPES.has(type) || !failureNode) return null;
     if (correctionNode && correctionNode.id === failureNode.id) correctionNode = null;
+    if (correctionNode && !afterFailure(correctionNode, failureNode)) correctionNode = null;
+    if (resolvedNode && !afterFailure(resolvedNode, failureNode)) resolvedNode = null;
     const model = failureNode.model || null;
 
     const ids = uniq([failureNode.id, correctionNode?.id, resolvedNode?.id]);
@@ -184,8 +209,8 @@ export function analyzeTree(tree) {
         confidence,
         tier,
         failureNode: node,
-        correctionNode: node.kind === 'correction' ? null : nearestCorrectionAfter(tree.nodes, index),
-        resolvedNode: nearestAcceptedAfter(tree.nodes, index),
+        correctionNode: node.kind === 'correction' ? null : nearestCorrectionAfter(tree.nodes, node),
+        resolvedNode: nearestAcceptedAfter(tree.nodes, node, null),
         evidence: `Agent action touched ${kinds.join(', ')}: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
         summary: `An agent action touched auth, secrets, or access control near "${truncate(node.title, 90)}".`,
       });
@@ -196,7 +221,7 @@ export function analyzeTree(tree) {
         tier: 'inferred',
         failureNode: node,
         correctionNode: null,
-        resolvedNode: nearestAcceptedAfter(tree.nodes, index),
+        resolvedNode: nearestAcceptedAfter(tree.nodes, node, null),
         evidence: `User stated a security-sensitive intent: "${quote(node.text)}"`,
         summary: `A security-sensitive intent was stated near "${truncate(node.title, 90)}".`,
       });
@@ -208,7 +233,7 @@ export function analyzeTree(tree) {
         confidence: 0.9,
         tier: 'verified',
         failureNode: node,
-        resolvedNode: nearestAcceptedAfter(tree.nodes, index),
+        resolvedNode: nearestAcceptedAfter(tree.nodes, node, null),
         evidence: `Branch abandoned after prompt: "${quote(node.text)}"`,
         summary: `A side path was abandoned: ${truncate(node.title, 120)}`,
       });
@@ -222,20 +247,39 @@ export function analyzeTree(tree) {
       PRIVACY_HINT.test(node.text);
     if (!shouldAnalyze) return;
 
-    const priorNode = nearestFailureTarget(node, tree.nodes, index);
-    const failureNode = priorNode || node;
-    const correctionNode = priorNode ? node : null;
-    const resolvedNode = nearestAcceptedAfter(tree.nodes, index);
     const signals = inferSignals(node);
+    if (!signals.length) return;
+
+    const prior = nearestFailureTarget(node, tree.nodes);
+    const priorNode = prior ? prior.target : null;
+    const corroborated = node.kind === 'correction' || (priorNode && sharesEvidence(priorNode, node));
+
+    let failureNode;
+    let correctionNode;
+    let linkage;
+    if (priorNode && corroborated) {
+      failureNode = priorNode;
+      correctionNode = node;
+      linkage = prior.linkage;
+    } else if (node.kind === 'correction') {
+      failureNode = node;
+      correctionNode = null;
+      linkage = 'positional';
+    } else {
+      return;
+    }
+
+    const resolvedNode = nearestAcceptedAfter(tree.nodes, failureNode, correctionNode);
 
     for (const signal of signals) {
       const tier = correctionNode ? 'confirmed' : 'inferred';
-      const confidence =
+      let confidence =
         tier === 'confirmed' ? Math.max(signal.confidence, 0.82) : Math.min(signal.confidence, 0.7);
+      if (linkage === 'positional') confidence = Math.min(confidence, 0.68);
       addFailure({
         type: signal.type,
         confidence,
-        tier,
+        tier: linkage === 'positional' ? 'inferred' : tier,
         failureNode,
         correctionNode,
         resolvedNode,
@@ -370,49 +414,115 @@ export function renderMemoryMarkdown(tree, opts = {}) {
 }
 
 function inferSignals(node) {
-  const text = node.text;
-  const signals = [];
-  const push = (type, confidence) => {
-    if (!signals.some((s) => s.type === type)) signals.push({ type, confidence });
+  const text = node.text || '';
+  if (node.kind !== 'correction' && text.length > WORDING_SCAN_MAX_CHARS) {
+    return [];
+  }
+  const matched = new Map();
+  const consider = (type, confidence) => {
+    const prev = matched.get(type);
+    if (prev === undefined || confidence > prev) matched.set(type, confidence);
   };
 
-  if (SCOPE_DRIFT_HINT.test(text)) push('scope_drift', 0.82);
+  if (SCOPE_DRIFT_HINT.test(text)) consider('scope_drift', 0.82);
   if (/\b(i said|you forgot|you ignored|not what i (asked|wanted|meant)|asked for)\b/i.test(text)) {
-    push('ignored_constraint', 0.84);
+    consider('ignored_constraint', 0.84);
   }
-  if (TOOL_HINT.test(text)) push('dependency_or_environment_mismatch', 0.72);
-  if (/\bwrong tool|wrong library|use .* instead\b/i.test(text)) push('wrong_tool_choice', 0.78);
-  if (HALLUCINATION_HINT.test(text)) push('hallucinated_file_or_api', 0.82);
-  if (REPEATED_FIX_HINT.test(text)) push('repeated_failed_fix', 0.8);
-  if (/\btoo much|overbuilt|scrap .* web app|too heavy\b/i.test(text)) push('overbuilt_solution', 0.78);
-  if (UNDERBUILT_HINT.test(text)) push('underbuilt_solution', 0.76);
-  if (FORMAT_HINT.test(text)) push('format_violation', 0.68);
-  if (FRUSTRATION_HINT.test(text)) push('user_frustration', 0.72);
-  if (!signals.length && node.kind === 'correction') push('misunderstood_goal', 0.62);
+  if (TOOL_HINT.test(text)) consider('dependency_or_environment_mismatch', 0.72);
+  if (/\bwrong tool|wrong library|use .* instead\b/i.test(text)) consider('wrong_tool_choice', 0.78);
+  if (HALLUCINATION_HINT.test(text)) consider('hallucinated_file_or_api', 0.82);
+  if (REPEATED_FIX_HINT.test(text)) consider('repeated_failed_fix', 0.8);
+  if (/\btoo much|overbuilt|scrap .* web app|too heavy\b/i.test(text)) consider('overbuilt_solution', 0.78);
+  if (UNDERBUILT_HINT.test(text)) consider('underbuilt_solution', 0.76);
+  if (FORMAT_HINT.test(text)) consider('format_violation', 0.68);
+  if (FRUSTRATION_HINT.test(text)) consider('user_frustration', 0.72);
+  if (!matched.size && node.kind === 'correction') consider('misunderstood_goal', 0.62);
 
-  return signals.slice(0, 3);
+  if (!matched.size) return [];
+  for (const type of SIGNAL_PRIORITY) {
+    if (matched.has(type)) return [{ type, confidence: matched.get(type) }];
+  }
+  return [];
 }
 
-function nearestFailureTarget(node, nodes, index) {
-  if (node.parent && node.parent.status !== 'abandoned' && node.parent.id !== node.id) return node.parent;
-  for (let i = index - 1; i >= 0; i--) {
-    if (nodes[i].status !== 'abandoned' && nodes[i].id !== node.id) return nodes[i];
-  }
-  return null;
+function tsOf(node) {
+  const t = node && node.ts ? new Date(node.ts).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
 }
 
-function nearestAcceptedAfter(nodes, index) {
-  for (let i = index + 1; i < nodes.length; i++) {
-    if (nodes[i].status !== 'abandoned') return nodes[i];
-  }
-  return null;
+function afterFailure(candidate, failureNode) {
+  const ct = tsOf(candidate);
+  const ft = tsOf(failureNode);
+  if (ct === null || ft === null) return true;
+  return ct >= ft;
 }
 
-function nearestCorrectionAfter(nodes, index) {
-  for (let i = index + 1; i < nodes.length; i++) {
-    if (nodes[i].status !== 'abandoned' && nodes[i].kind === 'correction') return nodes[i];
+function actionFiles(node) {
+  return new Set((node.actions || []).map((a) => a.file).filter(Boolean));
+}
+
+function sharedFiles(a, b) {
+  const fa = actionFiles(a);
+  if (!fa.size) return false;
+  for (const f of actionFiles(b)) if (fa.has(f)) return true;
+  return false;
+}
+
+function tokenSet(node) {
+  const out = new Set();
+  for (const raw of String(node.text || '').toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || []) {
+    if (!STOPWORDS.has(raw)) out.add(raw);
   }
-  return null;
+  return out;
+}
+
+function tokenOverlap(a, b) {
+  const ta = tokenSet(a);
+  if (!ta.size) return 0;
+  const tb = tokenSet(b);
+  let hits = 0;
+  for (const t of tb) if (ta.has(t)) hits++;
+  return hits;
+}
+
+function sharesEvidence(failureNode, candidate) {
+  if (sharedFiles(failureNode, candidate)) return true;
+  return tokenOverlap(failureNode, candidate) >= 3;
+}
+
+function nearestFailureTarget(node, nodes) {
+  const earlier = nodes.filter(
+    (n) => n.status !== 'abandoned' && n.id !== node.id && afterFailure(node, n)
+  );
+  if (!earlier.length) return null;
+  earlier.sort((a, b) => (tsOf(b) ?? 0) - (tsOf(a) ?? 0));
+  const semantic = earlier.find((n) => sharesEvidence(n, node));
+  if (semantic) return { target: semantic, linkage: 'semantic' };
+  if (node.parent && node.parent.status !== 'abandoned' && node.parent.id !== node.id && afterFailure(node, node.parent)) {
+    return { target: node.parent, linkage: 'positional' };
+  }
+  return { target: earlier[0], linkage: 'positional' };
+}
+
+function nearestAcceptedAfter(nodes, failureNode, correctionNode) {
+  const anchor = correctionNode || failureNode;
+  const later = nodes
+    .filter((n) => n.status !== 'abandoned' && n.id !== failureNode.id && afterFailure(n, anchor))
+    .filter((n) => !correctionNode || n.id !== correctionNode.id);
+  if (!later.length) return null;
+  later.sort((a, b) => (tsOf(a) ?? Infinity) - (tsOf(b) ?? Infinity));
+  const semantic = later.find((n) => sharesEvidence(failureNode, n));
+  return semantic || later[0];
+}
+
+function nearestCorrectionAfter(nodes, failureNode) {
+  const later = nodes.filter(
+    (n) => n.status !== 'abandoned' && n.kind === 'correction' && n.id !== failureNode.id && afterFailure(n, failureNode)
+  );
+  if (!later.length) return null;
+  later.sort((a, b) => (tsOf(a) ?? Infinity) - (tsOf(b) ?? Infinity));
+  const semantic = later.find((n) => sharesEvidence(failureNode, n));
+  return semantic || later[0];
 }
 
 function tierRank(tier) {

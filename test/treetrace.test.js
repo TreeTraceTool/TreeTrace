@@ -308,6 +308,63 @@ test('analysis: a keyword-only correction stays in the inferred or confirmed tie
   assert.equal(analysis.summary.tierCounts.verified, 0);
 });
 
+test('analysis: a single benign prompt does not yield multiple failure types', () => {
+  const root = {
+    id: 'node_001', text: 'build the marketing deck', title: 'build the marketing deck',
+    kind: 'root', status: 'accepted', parent: null, ts: '2026-06-12T14:00:00.000Z', actions: [],
+  };
+  const benign = {
+    id: 'node_002', text: 'and slide an agent to make the decks mobile friendly too please',
+    title: 'make the decks mobile friendly', kind: 'direction', status: 'accepted', parent: root,
+    ts: '2026-06-12T14:52:00.000Z', actions: [],
+  };
+  const longPaste = {
+    id: 'node_003',
+    text: 'ok sounds good i agree. ' + 'do not overbuild it, it is too much, try again later if it keeps failing. '.repeat(40),
+    title: 'long strategy paste', kind: 'checkpoint', status: 'accepted', parent: benign,
+    ts: '2026-06-12T12:52:00.000Z', actions: [],
+  };
+  const analysis = analyzeTree({ nodes: [root, benign, longPaste] });
+  const benignFailures = analysis.failures.filter((f) => f.firstSeenNodeId === 'node_002');
+  assert.equal(benignFailures.length, 0, 'a benign request should not mint failures from wording alone');
+  for (const id of ['node_001', 'node_002', 'node_003']) {
+    const types = analysis.failures.filter((f) => f.firstSeenNodeId === id).map((f) => f.type);
+    assert.ok(new Set(types).size <= 1, `node ${id} emitted multiple failure types: ${types.join(', ')}`);
+  }
+});
+
+test('analysis: a corrector is never linked with an earlier timestamp than its failure', () => {
+  const failure = {
+    id: 'node_001', text: 'i do not see the deck, just the index file showing text',
+    title: 'deck not rendering', kind: 'direction', status: 'accepted', parent: null,
+    ts: '2026-06-12T14:06:20.000Z',
+    actions: [{ tool: 'Edit', file: 'site/deck/index.html', command: null, input: null, model: 'claude-opus-4-8' }],
+  };
+  const earlier = {
+    id: 'node_002', text: 'no that is wrong, the deck still does not work, redo it instead',
+    title: 'still broken', kind: 'correction', status: 'accepted', parent: failure,
+    ts: '2026-06-12T12:52:00.000Z',
+    actions: [{ tool: 'Edit', file: 'site/deck/index.html', command: null, input: null, model: 'claude-opus-4-8' }],
+  };
+  const analysis = analyzeTree({ nodes: [failure, earlier] });
+  const byId = { node_001: failure, node_002: earlier };
+  for (const f of analysis.failures) {
+    if (!f.correctedByNodeId) continue;
+    const ft = new Date(byId[f.firstSeenNodeId].ts).getTime();
+    const ct = new Date(byId[f.correctedByNodeId].ts).getTime();
+    assert.ok(ct >= ft, `failure ${f.id} corrected by an earlier-timestamped node`);
+  }
+  for (const c of analysis.correctionChains) {
+    const ft = new Date(byId[c.failureNodeId].ts).getTime();
+    const ct = new Date(byId[c.correctionNodeId].ts).getTime();
+    assert.ok(ct >= ft, `chain ${c.id} links a corrector that precedes its failure`);
+    if (c.resolvedNodeId) {
+      const rt = new Date(byId[c.resolvedNodeId].ts).getTime();
+      assert.ok(rt >= ft, `chain ${c.id} resolves before its failure`);
+    }
+  }
+});
+
 test('cli: default run writes analysis artifacts with redaction', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'treetrace-'));
   try {
