@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -23,6 +23,9 @@ import {
 import { main } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
 import { sha256, escapeMd } from '../src/util.js';
+import { detectHallucinations, renderHallucinationsJson } from '../src/hallucinate.js';
+import { renderSecurityReport, hasSecuritySignal } from '../src/security-report.js';
+import { spawn } from 'node:child_process';
 
 const FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'synthetic-session.jsonl');
 
@@ -741,4 +744,183 @@ test('discover: path munging matches Claude Code storage layout', () => {
   assert.equal(mungePath('/home/dev/weatherapp'), '-home-dev-weatherapp');
   assert.equal(mungePath('/home/dev/weatherapp/api'), '-home-dev-weatherapp-api');
   assert.equal(mungePath('/home/u.ser/my_app'), '-home-u-ser-my-app');
+});
+
+function tempProject() {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-feat-'));
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo', dependencies: { express: '^4.0.0' } }));
+  mkdirSync(join(dir, 'src'), { recursive: true });
+  writeFileSync(join(dir, 'src', 'real.js'), 'export const real = 1;\n');
+  return dir;
+}
+
+test('hallucinations: flags only the invented file and import, not the real ones', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'Open src/real.js and src/imaginary.js to wire the feature.',
+      title: 'wire the feature',
+      actions: [{
+        tool: 'Edit', file: 'src/real.js',
+        input: "import express from 'express';\nimport ghostlib from 'ghostlib-does-not-exist';\nimport { readFileSync } from 'node:fs';",
+        command: null, model: 'm',
+      }],
+    };
+    const tree = { nodes: [root] };
+    const result = detectHallucinations(tree, dir);
+    const files = result.hallucinations.filter((h) => h.category === 'hallucinated_file_or_path').map((h) => h.reference);
+    const imports = result.hallucinations.filter((h) => h.category === 'hallucinated_import_or_package').map((h) => h.reference);
+
+    assert.ok(files.includes('src/imaginary.js'), `invented file should be flagged (got ${files})`);
+    assert.ok(!files.includes('src/real.js'), 'the real file must not be flagged');
+    assert.ok(!files.some((f) => /package\.json/.test(f)), 'the real package.json must not be flagged');
+
+    assert.ok(imports.includes('ghostlib-does-not-exist'), `invented import should be flagged (got ${imports})`);
+    assert.ok(!imports.includes('express'), 'a declared dependency must not be flagged');
+    assert.ok(!imports.includes('fs') && !imports.includes('node:fs'), 'a node builtin must not be flagged');
+
+    for (const h of result.hallucinations) {
+      assert.ok(h.evalCandidate && h.evalCandidate.target, 'each hallucination should carry an eval candidate');
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: a file created during the session is not flagged', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'Create src/brandnew.js and then reference src/brandnew.js again.',
+      title: 'create new file',
+      actions: [{ tool: 'Write', file: 'src/brandnew.js', input: 'export const n = 1;', command: null, model: 'm' }],
+    };
+    const result = detectHallucinations({ nodes: [root] }, dir);
+    const files = result.hallucinations.filter((h) => h.category === 'hallucinated_file_or_path').map((h) => h.reference);
+    assert.ok(!files.includes('src/brandnew.js'), 'a file the agent created this session must not be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('security report: surfaces real signals and omits benign sessions', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'harden the login flow', title: 'harden the login flow',
+      actions: [
+        { tool: 'Edit', file: 'src/auth/login.js', input: 'export function login() {}', command: null, model: 'claude-opus-4-8' },
+        { tool: 'Bash', file: null, command: 'rm -rf build', input: 'rm -rf build', model: 'claude-opus-4-8' },
+      ],
+    };
+    const correction = {
+      id: 'node_002', kind: 'correction', status: 'accepted', parent: root,
+      text: 'no, do not disable the tests in the auth suite, keep them running',
+      title: 'do not disable tests', actions: [],
+    };
+    const tree = { nodes: [root, correction] };
+    assert.ok(hasSecuritySignal(tree, dir), 'expected a security signal for the auth edit');
+    const report = renderSecurityReport(tree, dir, { projectName: 'demo', generatedAt: '2026-01-01T00:00:00.000Z' });
+
+    assert.ok(report.startsWith('# TreeTrace Security Report - demo'));
+    assert.ok(/auth: .*src\/auth\/login\.js/.test(report), 'auth surface and file should be listed');
+    assert.ok(/rm -rf build/.test(report), 'risky command should be listed');
+    assert.ok(/disable the tests|disable or skip tests/i.test(report), 'test-skip signal should appear');
+    assert.ok(/do not disable the tests/i.test(report), 'the human correction should surface as an eval/memory candidate');
+
+    const benign = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'add a markdown table to the README', title: 'add a table',
+      actions: [{ tool: 'Edit', file: 'README.md', input: '| a | b |', command: null, model: 'm' }],
+    };
+    const benignTree = { nodes: [benign] };
+    assert.ok(!hasSecuritySignal(benignTree, dir), 'benign session should have no security signal');
+    const benignReport = renderSecurityReport(benignTree, dir, { projectName: 'demo', generatedAt: '2026-01-01T00:00:00.000Z' });
+    assert.ok(/No security-sensitive touches/.test(benignReport), 'benign report should state nothing was found');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('security report and hallucinations.json do not leak injected secrets via the CLI', async () => {
+  const dir = tempProject();
+  const hex = '6881f8290266f4cc939959917f893a2a88787eb24bbcb6b9c37594c72bf448c3';
+  const ghToken = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [
+        `edit src/imaginary.js, my key is session_hex=${hex} and token ${ghToken}`,
+      ] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  const file = join(dir, 'leaky.json');
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--security', '--redact-auto', '--quiet']);
+    const hall = readFileSync(join(dir, '.treetrace/hallucinations.json'), 'utf8');
+    assert.ok(!hall.includes(hex), 'hex secret leaked into hallucinations.json');
+    assert.ok(!hall.includes(ghToken), 'github token leaked into hallucinations.json');
+    assert.ok(/imaginary\.js/.test(hall), 'the invented file should still be detected');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', async () => {
+  const dir = tempProject();
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: ['build a cli and do not add dependencies'] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: ['u2'] },
+      u2: { message: { author: { role: 'user' }, content: { parts: ['no, that is wrong, keep it minimal'] }, create_time: 3.0 }, parent: 'a', children: [] },
+    },
+  }];
+  const file = join(dir, 'mcp.json');
+  writeFileSync(file, JSON.stringify(convo));
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  try {
+    const responses = await new Promise((resolveP, rejectP) => {
+      const child = spawn('node', [bin, 'mcp', '--from', 'chatgpt', '--file', file, '--dir', dir], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      let buf = '';
+      child.stdout.on('data', (d) => { buf += d; });
+      child.on('error', rejectP);
+      const send = (o) => child.stdin.write(JSON.stringify(o) + '\n');
+      send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
+      send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+      send({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'lessons', arguments: {} } });
+      send({ jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'nope', arguments: {} } });
+      setTimeout(() => {
+        child.stdin.end();
+        child.kill();
+        resolveP(buf.split('\n').filter(Boolean).map((l) => JSON.parse(l)));
+      }, 2000);
+    });
+
+    const init = responses.find((r) => r.id === 1);
+    assert.ok(init && init.jsonrpc === '2.0', 'initialize must be JSON-RPC 2.0');
+    assert.equal(init.result.serverInfo.name, 'treetrace');
+    assert.ok(init.result.protocolVersion, 'initialize must advertise a protocol version');
+
+    const list = responses.find((r) => r.id === 2);
+    const names = list.result.tools.map((t) => t.name).sort();
+    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary']);
+
+    const call = responses.find((r) => r.id === 3);
+    assert.ok(call.result && Array.isArray(call.result.content), 'tools/call must return content array');
+    assert.equal(call.result.content[0].type, 'text');
+    assert.ok(/TreeTrace Lessons/.test(call.result.content[0].text), 'lessons tool should return the lessons markdown');
+
+    const bad = responses.find((r) => r.id === 99);
+    assert.ok(bad.error && bad.error.code === -32602, 'unknown tool should return a JSON-RPC error');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

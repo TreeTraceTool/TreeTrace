@@ -81,6 +81,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `PROMPT_TREE.md` | Human-readable narrative of the build path |
 | `.treetrace/tree.json` | Canonical machine-readable lineage schema |
 | `.treetrace/failures.json` | Failure signals, correction chains, and summaries |
+| `.treetrace/hallucinations.json` | Files, paths, imports, and packages the agent referenced that do not exist in the working tree |
 | `.treetrace/lessons.md` | Human-readable lessons for future work |
 | `.treetrace/evals.jsonl` | Generic model-agnostic eval cases |
 | `.treetrace/agent-memory.md` | Compact memory pack for Codex, Claude Code, Cursor, or another agent |
@@ -100,6 +101,8 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `npx treetrace --lessons` | Write and print `.treetrace/lessons.md` |
 | `npx treetrace --evals` | Write and print `.treetrace/evals.jsonl` |
 | `npx treetrace --memory` | Write and print `.treetrace/agent-memory.md` |
+| `npx treetrace --security` | Print a security-focused report and write `.treetrace/hallucinations.json` |
+| `npx treetrace mcp` | Start a read-only MCP server over stdio |
 | `npx treetrace --titles-only` | Compact human tree, no full prompt details |
 | `npx treetrace --redact-auto` | Redact every detected secret without prompting |
 | `npx treetrace --since 2026-06-01` | Limit to sessions on or after a date |
@@ -149,6 +152,40 @@ The goal is not judgment. The goal is regression memory: identify what future ag
 ```
 
 The format is intentionally model-agnostic. Adapters for promptfoo, OpenAI Evals-style harnesses, LangSmith-style datasets, and other eval systems can build from this JSONL without changing TreeTrace's local-first core.
+
+## Security report
+
+`treetrace --security` prints a security-focused report that leads with concrete failure classes. It reuses the same analysis as the full run and answers five questions:
+
+1. Did the agent touch auth, secrets, access control, crypto, dependency config, CI, deployment, or tests?
+2. Did it disable or skip tests?
+3. Did it run risky shell commands?
+4. Did it reference files, paths, imports, or packages that do not exist?
+5. What human correction should become a future eval or memory item?
+
+The report goes to stdout and the run writes `.treetrace/hallucinations.json`. Both pass the redaction shadow scan before anything is printed or written.
+
+## Hallucination detection
+
+TreeTrace runs inside the repository, so it can verify what the agent claimed against what is actually there. It extracts the files, paths, imports, and packages referenced in prompts and captured actions, then checks them against the real working tree and the manifests (`package.json`, `package-lock.json`, and Python requirement files). References that do not resolve are flagged in two categories:
+
+- `hallucinated_file_or_path`
+- `hallucinated_import_or_package`
+
+Each one becomes an eval candidate, for example "verify the file or import exists before editing." The checks are fully deterministic: file and path existence and import and package declaration. To avoid false positives, files the agent created during the session, relative paths, Node builtins, and Python standard library modules are excluded.
+
+This is honest about its limits. File, path, import, and package existence are solid. Per-symbol and per-API resolution inside a module is not attempted, because that would need an AST and a language toolchain, which would break the zero-dependency promise. TreeTrace does not claim to detect a hallucinated function or method on a real module.
+
+## MCP server
+
+`treetrace mcp` (or `treetrace --mcp`) starts a Model Context Protocol server over stdio. It speaks JSON-RPC 2.0, is hand-rolled with no dependencies, and implements `initialize`, `tools/list`, and `tools/call`. It exposes four read-only tools, each reusing existing functionality:
+
+- `handoff` - the continuation brief for the next agent
+- `lessons` - accepted constraints and repeated corrections
+- `security_summary` - evidence-backed security-sensitive touches
+- `eval_candidates` - compact regression cases
+
+No tool mutates files, runs shell, reaches the network, or requires authentication. Every returned text passes the same redaction shadow scan as the file exports. Point it at a project with `--dir`, or import a transcript with `--file` or `--stdin`, exactly like a normal run.
 
 ## Redaction gate
 

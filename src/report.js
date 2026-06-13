@@ -65,6 +65,7 @@ export function renderReportMarkdown(tree, opts = {}) {
   lines.push('| `PROMPT_TREE.md` | Full lineage narrative and replayable prompt pack. |');
   lines.push('| `.treetrace/tree.json` | Canonical schema for tools and integrations. |');
   lines.push('| `.treetrace/failures.json` | Failure labels, evidence, correction chains. |');
+  lines.push('| `.treetrace/hallucinations.json` | Referenced files, paths, imports, or packages that do not exist in the working tree. |');
   lines.push('| `.treetrace/lessons.md` | Human-readable lessons. |');
   lines.push('| `.treetrace/evals.jsonl` | Eval/regression cases; not meant to be pretty. |');
   lines.push('| `.treetrace/agent-memory.md` | Short memory pack for Codex, Claude Code, Cursor, or another agent. |');

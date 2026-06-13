@@ -18,6 +18,9 @@ import {
   renderMemoryMarkdown,
 } from './analyze.js';
 import { makeTitle } from './extract.js';
+import { renderHallucinationsJson } from './hallucinate.js';
+import { renderSecurityReport } from './security-report.js';
+import { startMcpServer } from './mcp.js';
 import { c, plural, truncate } from './util.js';
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -35,6 +38,8 @@ Usage:
   treetrace --lessons           write and print lessons Markdown
   treetrace --evals             write and print eval JSONL
   treetrace --memory            write and print compact agent memory
+  treetrace --security          print a security-focused report for this session
+  treetrace mcp                 start a read-only MCP server over stdio
 
 Options:
   --from <tool>         input format for --file: claude, codex, chatgpt, gemini,
@@ -45,6 +50,8 @@ Options:
   --json                also print lineage JSON to stdout
   --analysis            write failure, lesson, eval, and memory artifacts
   --titles-only         omit full prompt texts from the markdown tree
+  --security            print a security-focused report and write hallucinations.json
+  --mcp                 start a read-only MCP server over stdio (same as: treetrace mcp)
   --redact-auto         redact every detected secret without prompting
   --since <YYYY-MM-DD>  only include sessions active on/after this date
   --quiet               suppress progress output
@@ -58,11 +65,96 @@ export async function main(argv) {
   const opts = parseArgs(argv);
   if (opts.help) return void console.log(HELP);
   if (opts.version) return void console.log(VERSION);
+  if (opts.mcp) return await startMcpServer({ argv, version: VERSION });
 
   const projectDir = resolve(opts.dir || process.cwd());
   const projectName = detectProjectName(projectDir);
   const log = opts.quiet ? () => {} : (msg) => process.stderr.write(`${msg}\n`);
 
+  const { tree, decisions, asked, sourceTool } = await loadRedactedTree(opts, projectDir, projectName, log);
+
+  const ttDir = join(projectDir, '.treetrace');
+  const decisionsPath = join(ttDir, 'redactions.json');
+
+  const generatedAt = new Date().toISOString();
+  const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt, sourceType: sourceTypeFor(sourceTool) };
+
+  if (opts.handoff) {
+    const pack = renderHandoff(tree, renderOpts);
+    assertClean(pack, decisions, 'handoff brief');
+    process.stdout.write(pack);
+    log(c.green(`✓ handoff brief for ${projectName} (${plural(tree.stats.promptCount, 'prompt')} distilled)`));
+    return;
+  }
+
+  if (opts.security) {
+    const securityReport = renderSecurityReport(tree, projectDir, renderOpts);
+    const hallucinationsText = JSON.stringify(renderHallucinationsJson(tree, projectDir, renderOpts), null, 2);
+    assertClean(securityReport, decisions, 'security report');
+    assertClean(hallucinationsText, decisions, 'hallucinations.json');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(ttDir, { recursive: true });
+    writeFileSync(join(ttDir, 'hallucinations.json'), hallucinationsText);
+    writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+    process.stdout.write(securityReport);
+    log(c.green(`✓ security report for ${projectName}; wrote .treetrace/hallucinations.json`));
+    return;
+  }
+
+  const md = renderMarkdown(tree, renderOpts);
+  const json = renderJson(tree, renderOpts);
+  const jsonText = JSON.stringify(json, null, 2);
+  const artifacts = analysisArtifacts(ttDir, tree, renderOpts, projectDir);
+  const outPath = resolve(projectDir, opts.out || 'PROMPT_TREE.md');
+  const reportPath = resolve(projectDir, opts.reportFile || 'TREETRACE_REPORT.md');
+  const report = renderReportMarkdown(tree, renderOpts);
+
+  const requested = requestedArtifacts(opts, artifacts);
+  if (requested.length && !opts.report) {
+    for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(ttDir, { recursive: true });
+    for (const artifact of requested) writeFileSync(artifact.path, artifact.text);
+    writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+    if (requested.length === 1) {
+      process.stdout.write(requested[0].text);
+    } else {
+      process.stdout.write(requested.map((a) => `# ${a.label}\n\n${a.text}`).join('\n'));
+    }
+    log(c.green(`wrote ${requested.map((a) => relativeish(a.path, projectDir)).join(', ')}`));
+    return;
+  }
+
+  assertClean(md, decisions, 'PROMPT_TREE.md');
+  assertClean(jsonText, decisions, 'tree.json');
+  for (const artifact of Object.values(artifacts)) assertClean(artifact.text, decisions, artifact.label);
+  assertClean(report, decisions, 'TREETRACE_REPORT.md');
+
+  mkdirSync(projectDir, { recursive: true });
+  mkdirSync(ttDir, { recursive: true });
+  writeFileSync(outPath, md);
+  writeFileSync(reportPath, report);
+  writeFileSync(join(ttDir, 'tree.json'), jsonText);
+  for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
+
+  writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+
+  if (opts.json) process.stdout.write(jsonText + '\n');
+  if (opts.report) process.stdout.write(report);
+
+  log('');
+  log(summaryLine(tree.stats, projectName));
+  log(renderTerminalSummary(tree, renderOpts).trimEnd());
+  previewTree(tree, log);
+  log('');
+  log(
+    `${c.green('ok')} wrote ${c.bold(relativeish(reportPath, projectDir))}, ${c.bold(relativeish(outPath, projectDir))}, .treetrace/tree.json, and analysis artifacts`
+  );
+  if (!opts.report) log(c.dim('  run `treetrace --report` to print the human report in this terminal'));
+  if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
+}
+
+export async function loadRedactedTree(opts, projectDir, projectName, log = () => {}, { forceAuto = false } = {}) {
   let sessions = [];
   let sourceTool = 'claude';
   if (opts.stdin) {
@@ -138,10 +230,10 @@ export async function main(argv) {
     }
   }
 
-  const interactive = process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
+  const interactive = !forceAuto && process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
   const { decisions, asked, autoRedacted } = await resolveFindings(findings, priorDecisions, {
     interactive,
-    autoRedact: opts.redactAuto,
+    autoRedact: forceAuto || opts.redactAuto,
   });
   if (autoRedacted) {
     log(
@@ -165,68 +257,7 @@ export async function main(argv) {
   }
   analyzeTree(tree);
 
-  const generatedAt = new Date().toISOString();
-  const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt, sourceType: sourceTypeFor(sourceTool) };
-
-  if (opts.handoff) {
-    const pack = renderHandoff(tree, renderOpts);
-    assertClean(pack, decisions, 'handoff brief');
-    process.stdout.write(pack);
-    log(c.green(`✓ handoff brief for ${projectName} (${plural(tree.stats.promptCount, 'prompt')} distilled)`));
-    return;
-  }
-
-  const md = renderMarkdown(tree, renderOpts);
-  const json = renderJson(tree, renderOpts);
-  const jsonText = JSON.stringify(json, null, 2);
-  const artifacts = analysisArtifacts(ttDir, tree, renderOpts);
-  const outPath = resolve(projectDir, opts.out || 'PROMPT_TREE.md');
-  const reportPath = resolve(projectDir, opts.reportFile || 'TREETRACE_REPORT.md');
-  const report = renderReportMarkdown(tree, renderOpts);
-
-  const requested = requestedArtifacts(opts, artifacts);
-  if (requested.length && !opts.report) {
-    for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
-    mkdirSync(projectDir, { recursive: true });
-    mkdirSync(ttDir, { recursive: true });
-    for (const artifact of requested) writeFileSync(artifact.path, artifact.text);
-    writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
-    if (requested.length === 1) {
-      process.stdout.write(requested[0].text);
-    } else {
-      process.stdout.write(requested.map((a) => `# ${a.label}\n\n${a.text}`).join('\n'));
-    }
-    log(c.green(`wrote ${requested.map((a) => relativeish(a.path, projectDir)).join(', ')}`));
-    return;
-  }
-
-  assertClean(md, decisions, 'PROMPT_TREE.md');
-  assertClean(jsonText, decisions, 'tree.json');
-  for (const artifact of Object.values(artifacts)) assertClean(artifact.text, decisions, artifact.label);
-  assertClean(report, decisions, 'TREETRACE_REPORT.md');
-
-  mkdirSync(projectDir, { recursive: true });
-  mkdirSync(ttDir, { recursive: true });
-  writeFileSync(outPath, md);
-  writeFileSync(reportPath, report);
-  writeFileSync(join(ttDir, 'tree.json'), jsonText);
-  for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
-
-  writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
-
-  if (opts.json) process.stdout.write(jsonText + '\n');
-  if (opts.report) process.stdout.write(report);
-
-  log('');
-  log(summaryLine(tree.stats, projectName));
-  log(renderTerminalSummary(tree, renderOpts).trimEnd());
-  previewTree(tree, log);
-  log('');
-  log(
-    `${c.green('ok')} wrote ${c.bold(relativeish(reportPath, projectDir))}, ${c.bold(relativeish(outPath, projectDir))}, .treetrace/tree.json, and analysis artifacts`
-  );
-  if (!opts.report) log(c.dim('  run `treetrace --report` to print the human report in this terminal'));
-  if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
+  return { tree, decisions, asked, sourceTool };
 }
 
 const SOURCE_TYPE_BY_TOOL = {
@@ -284,12 +315,17 @@ async function ingestFile(file, from, log) {
   return { sessions: [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))], tool: 'transcript' };
 }
 
-function analysisArtifacts(ttDir, tree, renderOpts) {
+function analysisArtifacts(ttDir, tree, renderOpts, projectDir) {
   return {
     failures: {
       label: 'failures.json',
       path: join(ttDir, 'failures.json'),
       text: JSON.stringify(renderFailuresJson(tree, renderOpts), null, 2),
+    },
+    hallucinations: {
+      label: 'hallucinations.json',
+      path: join(ttDir, 'hallucinations.json'),
+      text: JSON.stringify(renderHallucinationsJson(tree, projectDir, renderOpts), null, 2),
     },
     lessons: {
       label: 'lessons.md',
@@ -319,7 +355,7 @@ function requestedArtifacts(opts, artifacts) {
   return requested;
 }
 
-function assertClean(rendered, decisions, label) {
+export function assertClean(rendered, decisions, label) {
   const leaks = shadowScan(rendered, decisions);
   if (leaks.length) {
     throw new Error(
@@ -382,7 +418,7 @@ function relativeish(p, base) {
   return p.startsWith(base) ? p.slice(base.length + 1) : p;
 }
 
-function detectProjectName(dir) {
+export function detectProjectName(dir) {
   try {
     const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
     if (pkg.name) return pkg.name;
@@ -392,7 +428,7 @@ function detectProjectName(dir) {
   return basename(dir);
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const opts = {
     files: [],
     stdin: false,
@@ -404,6 +440,8 @@ function parseArgs(argv) {
     lessons: false,
     evals: false,
     memory: false,
+    security: false,
+    mcp: false,
     titlesOnly: false,
     redactAuto: false,
     quiet: false,
@@ -430,6 +468,8 @@ function parseArgs(argv) {
       case '--lessons': opts.lessons = true; break;
       case '--evals': opts.evals = true; break;
       case '--memory': opts.memory = true; break;
+      case '--security': opts.security = true; break;
+      case 'mcp': case '--mcp': opts.mcp = true; break;
       case '--titles-only': opts.titlesOnly = true; break;
       case '--redact-auto': opts.redactAuto = true; break;
       case '--quiet': opts.quiet = true; break;

@@ -90,6 +90,35 @@ function isCredentialFile(file) {
   return true;
 }
 
+const SECURITY_SURFACE_RULES = [
+  { surface: 'auth', re: /(?:^|[\\/])[^\\/]*(?:auth|login|signin|signup|session|oauth|jwt|sso|saml)[^\\/]*$/i },
+  { surface: 'secrets', re: /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:secret|credential|password|passwd|apikey|api[-_]key|token)[^\\/]*)$/i },
+  { surface: 'access-control', re: /(?:^|[\\/])[^\\/]*(?:rbac|permission|access[-_]?control|policy|policies|guard|middleware)[^\\/]*$/i },
+  { surface: 'crypto', re: /(?:^|[\\/])[^\\/]*(?:crypto|cipher|encrypt|decrypt|hash|hmac|signature|signing)[^\\/]*$/i },
+  { surface: 'dependency-config', re: /(?:^|[\\/])(?:package\.json|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements\.txt|pyproject\.toml|Pipfile|go\.mod|Cargo\.toml|Gemfile)$/i },
+  { surface: 'ci', re: /(?:^|[\\/])(?:\.github[\\/]workflows[\\/][^\\/]+|\.gitlab-ci\.yml|\.circleci[\\/][^\\/]+|azure-pipelines\.yml|Jenkinsfile)$/i },
+  { surface: 'deployment', re: /(?:^|[\\/])(?:Dockerfile|docker-compose[^\\/]*\.ya?ml|[^\\/]*\.(?:tf|tfvars)|wrangler\.toml|vercel\.json|netlify\.toml|fly\.toml|[^\\/]*deploy[^\\/]*)$/i },
+  { surface: 'tests', re: /(?:^|[\\/])[^\\/]*(?:\.(?:test|spec)\.[a-z0-9]+|_test\.[a-z0-9]+|test_[^\\/]+)$|(?:^|[\\/])(?:tests?|__tests__|spec)[\\/]/i },
+];
+const TEST_SKIP_RE =
+  /\b(?:disabl|skip|remov|delet|comment(?:ed)? out|drop|turn(?:ed)? off|x?(?:it|describe)\.skip|--no-tests?|--skip-tests?)\w*\b[^.\n]{0,24}\btests?\b|\btests?\b[^.\n]{0,24}\b(?:disabl|skip|remov|delet|comment(?:ed)? out|turn(?:ed)? off)\w*/i;
+
+export function classifySecuritySurface(file) {
+  if (!file) return null;
+  for (const rule of SECURITY_SURFACE_RULES) {
+    if (rule.re.test(file)) return rule.surface;
+  }
+  return null;
+}
+
+export function isRiskyCommand(command) {
+  return typeof command === 'string' && RISKY_CMD_RE.test(command);
+}
+
+export function mentionsTestSkip(text) {
+  return typeof text === 'string' && text.length <= 4000 && TEST_SKIP_RE.test(text);
+}
+
 function securityActions(node) {
   const out = [];
   for (const a of node.actions || []) {

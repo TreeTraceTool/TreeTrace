@@ -2,6 +2,14 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## Unreleased
+
+### Added
+
+- `--security` focused report mode. Prints a security-focused report that leads with concrete failure classes and answers five questions from the existing analysis: whether the agent touched auth, secrets, access control, crypto, dependency config, CI, deployment, or tests; whether it disabled or skipped tests; whether it ran risky shell commands; whether it referenced files, paths, imports, or packages that do not exist; and which human correction should become a future eval or memory item. It reuses the same signals as the full analysis and does not run a separate scanner. The report prints to stdout and writes `.treetrace/hallucinations.json`, both gated through the redaction shadow scan.
+- Deterministic hallucination detector. TreeTrace runs inside the repository, so it extracts the files, paths, imports, and packages the agent referenced in prompts and captured actions, then verifies them against the real working tree and `package.json`, `package-lock.json`, and Python manifests. References that do not resolve are flagged as likely hallucinations in two categories, `hallucinated_file_or_path` and `hallucinated_import_or_package`, and surfaced both in the security report and in `.treetrace/hallucinations.json` (mirroring the `failures.json` shape). Each one carries an eval candidate. File and path existence and import and package declaration are checked; per-symbol and per-API resolution inside a module is not attempted, and the tool says so. Files the agent created during the session, relative paths, Node builtins, and Python standard library modules are excluded to avoid false positives.
+- Read-only MCP server. `treetrace mcp` (or `treetrace --mcp`) starts a Model Context Protocol server over stdio using JSON-RPC 2.0, hand-rolled with no dependencies. It implements `initialize`, `tools/list`, and `tools/call`, and exposes four read-only tools that reuse existing functionality: `handoff`, `lessons`, `security_summary`, and `eval_candidates`. No tool mutates files, runs shell, hits the network, or requires authentication. Every returned text passes the same redaction shadow scan as the file exports.
+
 ## 0.4.1 - 2026-06-13
 
 A fix release driven by an adversarial end-to-end test pass across every adapter on real sessions. See [TESTING.md](TESTING.md) for the method and coverage.
