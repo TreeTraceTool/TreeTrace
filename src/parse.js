@@ -210,12 +210,48 @@ function ingestAssistant(session, rec) {
           tool: block.name || null,
           file: typeof file === 'string' ? file : null,
           command: block.name === 'Bash' && typeof input.command === 'string' ? input.command : null,
+          input: summarizeToolInput(block.name, input),
           model: synthetic ? null : msg.model || null,
         });
       }
     } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
       if (current) current.thinking++;
     }
+  }
+}
+
+const INPUT_CAP = 300;
+
+function summarizeToolInput(tool, input) {
+  if (!input || typeof input !== 'object') return null;
+  let raw;
+  switch (tool) {
+    case 'Bash':
+      raw = typeof input.command === 'string' ? input.command : compactJson(input);
+      break;
+    case 'Edit':
+      raw = typeof input.new_string === 'string' ? input.new_string : compactJson(input);
+      break;
+    case 'Write':
+      raw = typeof input.content === 'string' ? input.content : compactJson(input);
+      break;
+    case 'WebFetch':
+      raw = [input.url, input.prompt].filter((v) => typeof v === 'string').join(' ') || compactJson(input);
+      break;
+    default:
+      raw = compactJson(input);
+  }
+  if (!raw) return null;
+  raw = raw.replace(/\s+/g, ' ').trim();
+  if (!raw) return null;
+  return raw.length > INPUT_CAP ? `${raw.slice(0, INPUT_CAP)}...` : raw;
+}
+
+function compactJson(value) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
   }
 }
 

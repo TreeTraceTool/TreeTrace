@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -310,6 +310,63 @@ test('cli: creates the output directory and .treetrace subdirectory when missing
     assert.ok(existsSync(join(dir, '.treetrace', 'tree.json')), '.treetrace/tree.json missing');
   } finally {
     rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('redaction: the literal phrase "security-risk" is not a false-positive secret', () => {
+  for (const phrase of ['security-risk', 'skip the security-risk step']) {
+    const hard = scanText(phrase).filter((f) => f.severity !== 'soft');
+    assert.deepEqual(hard, [], `"${phrase}" should not match any secret rule (got ${JSON.stringify(hard)})`);
+  }
+});
+
+test('redaction: a real-format GitHub token is caught', () => {
+  const token = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const hits = scanText(`set the remote with ${token} now`).map((f) => f.ruleId);
+  assert.ok(hits.includes('github-token'), `github-token missed (got ${hits})`);
+});
+
+test('redaction: a token inside a Bash action body is redacted end to end', async () => {
+  const token = 'ghp_0123456789abcdefghijklmnopqrstuvwxyzAB';
+  const lines = [
+    { type: 'summary', summary: 'wire up the remote', leafUuid: 'b3' },
+    {
+      parentUuid: null, isSidechain: false, type: 'user', userType: 'external', uuid: 'b1',
+      sessionId: 'leak-001', timestamp: '2026-06-01T10:00:00.000Z', cwd: '/tmp/demo', gitBranch: 'main', version: '2.1.0',
+      message: { role: 'user', content: 'Point the git remote at my fork.' },
+    },
+    {
+      parentUuid: 'b1', isSidechain: false, type: 'assistant', uuid: 'b2', sessionId: 'leak-001',
+      timestamp: '2026-06-01T10:00:30.000Z',
+      message: {
+        role: 'assistant', model: 'assistant-model', usage: { input_tokens: 100, output_tokens: 50 },
+        content: [
+          { type: 'text', text: 'Setting the remote.' },
+          { type: 'tool_use', id: 'g1', name: 'Bash', input: { command: `git push --force origin main && git remote set-url origin https://x:${token}@github.com/me/fork.git` } },
+        ],
+      },
+    },
+  ];
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-leak-'));
+  const session = join(dir, 'session.jsonl');
+  writeFileSync(session, lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+  try {
+    const parsed = await parseSessionFile(session, { sessionId: 'leak-001' });
+    const action = parsed.prompts[0].actions.find((a) => a.tool === 'Bash');
+    assert.ok(action, 'expected a captured Bash action');
+    assert.ok(action.command.includes(token), 'fixture should carry the raw token before redaction');
+    assert.ok(typeof action.input === 'string' && action.input.includes(token), 'input summary should carry the command');
+
+    await main(['--file', session, '--dir', dir, '--redact-auto', '--quiet']);
+    const exported = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ].map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!exported.includes(token), 'GitHub token leaked from an action body into output');
+    assert.ok(!/ghp_[0-9A-Za-z]/.test(exported), 'a partial GitHub token prefix leaked from an action body into output');
+    assert.ok(exported.includes('[REDACTED:'), 'expected a redaction marker where the action-body token was');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

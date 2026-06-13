@@ -115,8 +115,16 @@ export async function main(argv) {
     }
   }
 
+  const ACTION_FIELDS = ['command', 'file', 'input'];
   const findings = [];
-  for (const node of tree.nodes) findings.push(...scanText(node.text));
+  for (const node of tree.nodes) {
+    findings.push(...scanText(node.text));
+    for (const action of node.actions || []) {
+      for (const field of ACTION_FIELDS) {
+        if (typeof action[field] === 'string') findings.push(...scanText(action[field]));
+      }
+    }
+  }
 
   const interactive = process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
   const { decisions, asked, autoRedacted } = await resolveFindings(findings, priorDecisions, {
@@ -135,6 +143,13 @@ export async function main(argv) {
     const before = node.text;
     node.text = applyDecisions(node.text, findings, decisions);
     if (node.text !== before) node.title = makeTitle(node.text);
+    for (const action of node.actions || []) {
+      for (const field of ACTION_FIELDS) {
+        if (typeof action[field] === 'string') {
+          action[field] = applyDecisions(action[field], findings, decisions);
+        }
+      }
+    }
   }
   analyzeTree(tree);
 
