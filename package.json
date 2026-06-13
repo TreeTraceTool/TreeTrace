@@ -17,6 +17,14 @@
   ],
   "license": "Apache-2.0",
   "author": "Zion Boggan",
+  "homepage": "https://treetrace.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Tree-Trace/treetrace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Tree-Trace/treetrace/issues"
+  },
   "type": "module",
   "bin": {
     "treetrace": "bin/treetrace.js"
