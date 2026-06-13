@@ -1,6 +1,7 @@
 # TreeTrace
 
 [![npm version](https://img.shields.io/npm/v/treetrace.svg)](https://www.npmjs.com/package/treetrace)
+[![ci](https://github.com/Tree-Trace/treetrace/actions/workflows/ci.yml/badge.svg)](https://github.com/Tree-Trace/treetrace/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
 
@@ -46,13 +47,22 @@ Agents drift into the dangerous places: editing auth flows, printing secrets, lo
 
 The loop is explicit:
 
+```mermaid
+flowchart LR
+  A["Agent touches auth,<br/>secrets, or access control"] --> B["Human correction<br/>steers it back"]
+  B --> C["TreeTrace flags it:<br/>typed signal, evidence,<br/>confidence tier"]
+  C --> D["Correction becomes<br/>a regression eval"]
+  D --> E["Lesson lands in<br/>agent memory and handoff"]
+  E -.->|"next session starts<br/>already knowing"| A
+```
+
 1. **Failure.** TreeTrace flags the risky agent action with a typed signal (for example `security_or_privacy_risk`), a confidence score, the evidence text, and the source node IDs.
 2. **Eval.** The human correction that resolved it becomes a model-agnostic case in `.treetrace/evals.jsonl`, so the same mistake is caught next time in CI or an eval harness.
 3. **Handoff.** The lesson lands in `.treetrace/agent-memory.md` and `treetrace --handoff`, so the next agent starts already knowing the constraint instead of relearning it.
 
 Failure to eval to handoff: every correction you made by hand becomes a guardrail the next session inherits.
 
-## What It Does
+## What it does
 
 1. **Discovers local transcripts.** Claude Code session files are found automatically from `~/.claude/projects/...`; plain transcripts can be imported with `--file` or `--stdin`.
 2. **Extracts prompt lineage.** Tool noise, slash-command wrappers, sidechain chatter, duplicate resends, and "continue" nudges are filtered or folded.
@@ -106,7 +116,7 @@ npx treetrace --report --redact-auto | tee treetrace-output.md
 
 If you see a file literally named `output`, that usually came from `--out output` or shell redirection like `> output`. Prefer `TREETRACE_REPORT.md` for human reading and leave `.treetrace/*.json` / `.jsonl` for tools.
 
-## Failure Analysis
+## Failure analysis
 
 TreeTrace does not claim to perfectly understand every session. The first analysis pass is heuristic and explainable: every failure signal includes a type, confidence score, evidence text, and source node IDs.
 
@@ -128,7 +138,7 @@ Initial failure types include:
 
 The goal is not judgment. The goal is regression memory: identify what future agents should preserve, avoid, or test.
 
-## Eval Export
+## Eval export
 
 `.treetrace/evals.jsonl` turns real session corrections into generic eval cases:
 
@@ -138,7 +148,7 @@ The goal is not judgment. The goal is regression memory: identify what future ag
 
 The format is intentionally model-agnostic. Adapters for promptfoo, OpenAI Evals-style harnesses, LangSmith-style datasets, and other eval systems can build from this JSONL without changing TreeTrace's local-first core.
 
-## Redaction Gate
+## Redaction gate
 
 A privacy-positioned tool gets exactly one chance with your secrets, so every export goes through the same gate:
 
@@ -200,7 +210,7 @@ a captured real Grok session.
 
 Consumers should ignore unknown fields. Failure signals, correction chains, lessons, and eval candidates are additive.
 
-## Product Boundaries
+## Product boundaries
 
 TreeTrace is not a hosted SaaS, telemetry product, generic LangSmith clone, prompt-sharing network, or graph visualizer first.
 
