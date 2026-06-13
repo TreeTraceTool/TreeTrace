@@ -104,7 +104,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `npx treetrace --redact-auto` | Redact every detected secret without prompting |
 | `npx treetrace --since 2026-06-01` | Limit to sessions on or after a date |
 
-For a Termius, Codex CLI, Claude Code, or SSH session where you want the report in the terminal window, use:
+For a Terminus, Codex CLI, Claude Code, or SSH session where you want the report in the terminal window, use:
 
 ```bash
 npx treetrace --report --redact-auto
