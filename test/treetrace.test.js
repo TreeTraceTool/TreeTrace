@@ -325,6 +325,31 @@ test('analysis: a benign descriptive prompt with no directive yields no false co
   assert.ok(/No explicit constraints were flagged/.test(block), 'benign descriptive text should not mint constraints');
 });
 
+test('analysis: a destructive-then-recovery turn yields a known bad path and is not the preferred next work', () => {
+  const root = { id: 'node_001', text: 'build the marketing deck', title: 'build the marketing deck', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const direction = {
+    id: 'node_002', text: 'Also you can send an agent out to develop these sections',
+    title: 'send an agent out to develop these sections', kind: 'direction', status: 'accepted', parent: root, actions: [],
+  };
+  const mishap = {
+    id: 'node_003', text: 'Also messed up the deck file in the P:/ it is gone I am sorry can you bring it back',
+    title: 'Also messed up the deck file in the P:/ it is gone I am sorry can you bring it back',
+    kind: 'direction', status: 'accepted', parent: direction,
+    actions: [{ tool: 'Write', file: 'P:/deck/index.html' }],
+  };
+  const nodes = [root, direction, mishap];
+  const analysis = analyzeTree({ nodes });
+  const bad = analysis.failures.filter((f) => f.type === 'abandoned_path');
+  assert.ok(bad.length >= 1, 'destructive-then-recovery should produce a bad-path entry');
+  const memory = renderMemoryMarkdown({ nodes });
+  const badBlock = memory.slice(memory.indexOf('## Known bad paths'), memory.indexOf('## Security-sensitive'));
+  assert.ok(!/No abandoned paths were detected/.test(badBlock), 'must not claim no abandoned paths when a destructive event occurred');
+  assert.ok(/recover|destructive/i.test(badBlock), 'bad-path entry should warn about the destructive event');
+  const nextBlock = memory.slice(memory.indexOf('## Preferred next work'));
+  assert.ok(!/messed up the deck/i.test(nextBlock), 'preferred next work must not parrot the apology turn');
+  assert.ok(/develop these sections/i.test(nextBlock), 'preferred next work should point at the real forward direction');
+});
+
 test('analysis: a keyword-only correction stays in the inferred or confirmed tier, not verified', () => {
   const root = { id: 'node_001', text: 'build a dashboard', title: 'build a dashboard', kind: 'root', status: 'accepted', parent: null, actions: [] };
   const corr = { id: 'node_002', text: 'no, that is overbuilt, keep it minimal', title: 'no, that is overbuilt', kind: 'correction', status: 'accepted', parent: root, actions: [] };

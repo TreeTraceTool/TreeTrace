@@ -70,6 +70,13 @@ const CONSTRAINT_NAMED = [
   { re: /\b(?:no\s+ai|ai[\s-]?(?:generated|authored|written|tell))\b/i, label: 'No AI-authorship tells' },
 ];
 
+const DESTRUCTIVE_RE =
+  /\b(?:messed up|screwed up|broke|broken|deleted|wiped|nuked|lost|gone|overwrote|overwritten|corrupted|trashed|removed by accident|accidentally (?:deleted|removed|overwrote|ran))\b/i;
+const RECOVERY_RE =
+  /\b(?:bring it back|bring them back|restore|recover|undo|revert|roll(?: |-)?back|get it back|put it back|can you (?:fix|recover|restore)|recreate)\b/i;
+const APOLOGY_RE = /\b(?:i'?m sorry|im sorry|sorry|my bad|my fault|oops|whoops)\b/i;
+const REMEDIATION_RE = new RegExp(`${DESTRUCTIVE_RE.source}|${RECOVERY_RE.source}`, 'i');
+
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
@@ -87,6 +94,34 @@ function securityActions(node) {
     if (kind) out.push({ action: a, kind });
   }
   return out;
+}
+
+function fileHint(node) {
+  for (const a of node.actions || []) {
+    if (a.file) return a.file;
+  }
+  const text = String(node.text || '');
+  const m = text.match(/\b([\w./\\-]+\.[a-z0-9]{1,5})\b/i) || text.match(/\b([A-Za-z]:[\\/][^\s"']+)/);
+  return m ? m[1] : null;
+}
+
+function badPathEpisode(node) {
+  const text = String(node.text || '');
+  if (text.length > WORDING_SCAN_MAX_CHARS) return null;
+  const destructive = DESTRUCTIVE_RE.test(text);
+  const recovery = RECOVERY_RE.test(text);
+  if (!destructive && !recovery) return null;
+  if (!destructive && recovery && !APOLOGY_RE.test(text)) return null;
+  const target = fileHint(node);
+  const where = target ? `\`${truncate(String(target), 70)}\`` : 'a file';
+  const tail = recovery
+    ? ' and had to be recovered; guard against destructive file operations.'
+    : ' was reported as lost or broken; guard against destructive file operations.';
+  return {
+    confidence: destructive && recovery ? 0.9 : 0.75,
+    tier: destructive && recovery ? 'verified' : 'high',
+    summary: `${where} was deleted or damaged${tail}`,
+  };
 }
 
 export function analyzeTree(tree) {
@@ -260,6 +295,19 @@ export function analyzeTree(tree) {
       return;
     }
 
+    const destructive = badPathEpisode(node);
+    if (destructive) {
+      addFailure({
+        type: 'abandoned_path',
+        confidence: destructive.confidence,
+        tier: destructive.tier,
+        failureNode: node,
+        resolvedNode: nearestAcceptedAfter(tree.nodes, node, null),
+        evidence: `User reported a destructive event: "${quote(node.text)}"`,
+        summary: destructive.summary,
+      });
+    }
+
     const shouldAnalyze =
       node.kind === 'correction' ||
       CORRECTION_HINT.test(node.text) ||
@@ -420,17 +468,38 @@ export function renderMemoryMarkdown(tree, opts = {}) {
 
   lines.push('## Preferred next work');
   lines.push('');
-  const accepted = nodes.filter((n) => live(n) && (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change'));
-  const latest = accepted[accepted.length - 1];
-  if (latest) lines.push(`- Continue the most recent accepted direction: ${escapeMd(truncate(latest.title, 140))}`);
-  const openCorrections = nodes.filter((n) => live(n) && n.kind === 'correction').slice(-3);
-  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${escapeMd(truncate(n.title, 120))}`);
-  if (!latest && !openCorrections.length) {
-    lines.push('- Continue from the accepted decisions above and confirm scope with the user.');
+  const strategic = nodes.filter(
+    (n) =>
+      live(n) &&
+      (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change') &&
+      isStrategicDirection(n)
+  );
+  const latest = strategic[strategic.length - 1];
+  if (latest) {
+    lines.push(`- Continue the most recent accepted direction: ${escapeMd(truncate(latest.title, 140))}`);
+  } else {
+    lines.push(`- No open forward direction was stated; resume the goal of ${escapeMd(projectName)} and confirm scope with the user.`);
   }
+  const openCorrections = nodes
+    .filter((n) => live(n) && n.kind === 'correction' && isStrategicDirection(n))
+    .slice(-3);
+  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${escapeMd(truncate(n.title, 120))}`);
   lines.push('');
 
   return lines.join('\n');
+}
+
+function isStrategicDirection(node) {
+  const text = String(node.text || '').trim();
+  if (!text) return false;
+  if (REMEDIATION_RE.test(text) || APOLOGY_RE.test(text)) return false;
+  const stripped = text.replace(/[\s.!?]+$/g, '');
+  if (stripped.length < 12) return false;
+  if (/^(?:yes|yep|yeah|ok|okay|sure|nice|perfect|great|good|lgtm|thanks?|cool|agreed?)\b/i.test(stripped)) {
+    if (stripped.length < 40) return false;
+  }
+  if (/\?\s*$/.test(text) && text.length < 80) return false;
+  return true;
 }
 
 function constraintClauses(text) {
