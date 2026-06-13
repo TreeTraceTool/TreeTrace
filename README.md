@@ -7,6 +7,8 @@
 
 **Git shows what changed. TreeTrace shows how you steered the agent.**
 
+The corrections you make to an AI agent are the highest-signal data in the session, and they vanish when it ends. TreeTrace captures them locally as deterministic regression and eval data, with no LLM judge.
+
 ![TreeTrace turning a session into a prompt tree, lessons, and redacted output](https://raw.githubusercontent.com/Tree-Trace/treetrace/main/.github/assets/demo.gif)
 
 TreeTrace is the local-first regression and memory layer for AI coding agents. It reads local AI coding transcripts and reconstructs the path of human steering: the root goal, direction changes, corrections, abandoned branches, accepted decisions, and the final shipped path. The sharpest signal is security. TreeTrace flags every time an agent touched auth, secrets, or access control, disabled tests, ran unsafe shell, or opened an SSRF, RCE, or XSS path, captures the human correction that pulled it back, and turns that correction into a regression eval so the next agent does not repeat it.
