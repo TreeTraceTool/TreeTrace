@@ -181,7 +181,7 @@ export function analyzeTree(tree) {
       if (confidence > existing.confidence) existing.confidence = confidence;
       if (tierRank(tier) > tierRank(existing.tier)) existing.tier = tier;
       const lr = lessonByType.get(type);
-      if (lr) lr.nodeIds = uniq([...lr.nodeIds, ...ids]);
+      if (lr) lr.nodeIds = uniq([...lr.nodeIds, failureNode.id]);
       const er = evalByType.get(evalTypeFor(type));
       if (er) er.sourceNodeIds = uniq([...er.sourceNodeIds, ...ids]);
       if (correctionNode && !existing.correctedByNodeId) existing.correctedByNodeId = correctionNode.id;
@@ -189,14 +189,14 @@ export function analyzeTree(tree) {
       return existing;
     }
 
-    const lesson = lessonFor(type, correctionNode || failureNode);
+    const lesson = lessonFor(type, { evidence, summary });
     let lessonRec = lessonByType.get(type);
     if (!lessonRec) {
-      lessonRec = { id: `lesson_${pad(lessons.length + 1)}`, title: lesson.title, nodeIds: ids, text: lesson.text };
+      lessonRec = { id: `lesson_${pad(lessons.length + 1)}`, title: lesson.title, nodeIds: [failureNode.id], text: lesson.text };
       lessons.push(lessonRec);
       lessonByType.set(type, lessonRec);
     } else {
-      lessonRec.nodeIds = uniq([...lessonRec.nodeIds, ...ids]);
+      lessonRec.nodeIds = uniq([...lessonRec.nodeIds, failureNode.id]);
     }
 
     const evalType = evalTypeFor(type);
@@ -402,7 +402,9 @@ export function renderLessonsMarkdown(tree, opts = {}) {
     lines.push('');
     lines.push(escapeMd(lesson.text));
     lines.push('');
-    lines.push(`Source nodes: ${lesson.nodeIds.join(', ')}`);
+    const ids = lesson.nodeIds;
+    const shown = ids.slice(0, 8).join(', ');
+    lines.push(`Source nodes: ${shown}${ids.length > 8 ? ` (+${ids.length - 8} more)` : ''}`);
     lines.push('');
   });
   return lines.join('\n');
@@ -746,8 +748,7 @@ function summarizeFailure(type, failureNode, correctionNode) {
   }
 }
 
-function lessonFor(type, node) {
-  const prompt = truncate(node?.text || '', 180);
+function lessonFor(type, { evidence = '', summary = '' } = {}) {
   const titles = {
     ignored_constraint: 'Preserve explicit constraints',
     misunderstood_goal: 'Re-check the actual goal',
@@ -763,7 +764,7 @@ function lessonFor(type, node) {
     user_frustration: 'Escalate when user frustration appears',
     abandoned_path: 'Avoid abandoned paths unless explicitly revived',
   };
-  const text = {
+  const guidance = {
     ignored_constraint: 'Future agents should carry explicit user constraints forward as high-priority requirements.',
     misunderstood_goal: 'Future agents should restate and verify the goal before continuing after a correction.',
     scope_drift: 'Future agents should preserve the corrected scope and avoid adding unrequested product shape.',
@@ -778,9 +779,11 @@ function lessonFor(type, node) {
     user_frustration: 'Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course.',
     abandoned_path: 'Future agents should avoid resurrecting abandoned branches unless the user explicitly asks for them.',
   };
+  const base = guidance[type] || 'Future agents should preserve this correction.';
+  const concrete = String(evidence || summary || '').replace(/\s+/g, ' ').trim();
   return {
     title: titles[type] || 'Preserve the correction',
-    text: `${text[type] || 'Future agents should preserve this correction.'}${prompt ? ` Evidence: "${prompt}"` : ''}`,
+    text: concrete ? `${base} Specifically: ${truncate(concrete, 220)}` : base,
   };
 }
 
