@@ -139,9 +139,10 @@ function normalizeFileKey(p) {
 }
 
 function tokenExtension(tok) {
-  const dot = tok.lastIndexOf('.');
-  if (dot < 0) return '';
-  return tok.slice(dot + 1).toLowerCase();
+  const base = tok.split('/').pop();
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return '';
+  return base.slice(dot + 1).toLowerCase();
 }
 
 function hasSlash(tok) {

@@ -851,6 +851,26 @@ test('hallucinations: a file created during the session is not flagged', () => {
   }
 });
 
+test('hallucinations: extensionless files under dot-directories are flagged when missing', () => {
+  const dir = tempProject();
+  try {
+    const root = {
+      id: 'node_001', kind: 'root', status: 'accepted', parent: null,
+      text: 'Open .github/CODEOWNERS and .github/workflows/ci and .husky/pre-commit, and reference JSON.parse and test.skip.',
+      title: 'review config',
+      actions: [],
+    };
+    const result = detectHallucinations({ nodes: [root] }, dir);
+    const files = result.hallucinations.filter((h) => h.category === 'hallucinated_file_or_path').map((h) => h.reference);
+    assert.ok(files.includes('.github/CODEOWNERS'), `dot-directory path should be flagged (got ${files})`);
+    assert.ok(files.includes('.github/workflows/ci'), 'nested dot-directory path should be flagged');
+    assert.ok(files.includes('.husky/pre-commit'), 'hyphenated dot-directory path should be flagged');
+    assert.ok(!files.includes('JSON.parse') && !files.includes('test.skip'), 'dotted code symbols must not be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('security report: surfaces real signals and omits benign sessions', () => {
   const dir = tempProject();
   try {
