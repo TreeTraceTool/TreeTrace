@@ -78,20 +78,39 @@ const APOLOGY_RE = /\b(?:i'?m sorry|im sorry|sorry|my bad|my fault|oops|whoops)\
 const REMEDIATION_RE = new RegExp(`${DESTRUCTIVE_RE.source}|${RECOVERY_RE.source}`, 'i');
 
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
-const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force\b|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
+const SECURITY_FILE_EXCLUDE_RE = /(?:^|[\\/])(?:[^\\/]*tokens?\.[a-z]+|tokenizer[^\\/]*|[^\\/]*[-_.]?token(?:izer|s)?\.(?:tsx?|jsx?|css|scss|json|svg)|semantic[-_]?tokens?[^\\/]*|design[-_]?tokens?[^\\/]*)$/i;
+const RISKY_CMD_RE = /(?:\brm\s+-rf\b|\bchmod\s+777\b|curl[^|]*\|\s*(?:sh|bash)|wget[^|]*\|\s*(?:sh|bash)|--no-verify\b|--force(?![\w-])|\bDROP\s+TABLE\b|\bTRUNCATE\s+TABLE\b)/i;
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
-const ACCESS_CONTROL_CONTENT_RE = /\b(?:rbac|access[-_]?control|grant\s+(?:select|insert|update|delete|all)\b|setfacl|chmod\s+[0-7]{3,4}\b)/i;
+const ACCESS_CONTROL_CONTENT_RE = /\b(?:grant\s+(?:select|insert|update|delete|all)\b|setfacl|chmod\s+[0-7]{3,4}\b)/i;
+const ACCESS_CONTROL_WEAK_RE = /\b(?:rbac|access[-_]?control)\b/i;
+
+function isCredentialFile(file) {
+  if (!file || !SECURITY_FILE_RE.test(file)) return false;
+  if (SECURITY_FILE_EXCLUDE_RE.test(file)) return false;
+  return true;
+}
 
 function securityActions(node) {
   const out = [];
   for (const a of node.actions || []) {
     const body = `${a.command || ''} ${a.input || ''}`;
     let kind = null;
-    if (a.file && SECURITY_FILE_RE.test(a.file)) kind = 'file';
-    else if (SECRET_CONTENT_RE.test(body)) kind = 'credential';
-    else if (ACCESS_CONTROL_CONTENT_RE.test(body)) kind = 'access-control';
-    else if (a.command && RISKY_CMD_RE.test(a.command)) kind = 'risky-command';
-    if (kind) out.push({ action: a, kind });
+    let strong = false;
+    if (SECRET_CONTENT_RE.test(body)) {
+      kind = 'credential';
+      strong = true;
+    } else if (a.file && isCredentialFile(a.file)) {
+      kind = 'file';
+      strong = true;
+    } else if (ACCESS_CONTROL_CONTENT_RE.test(body)) {
+      kind = 'access-control';
+      strong = true;
+    } else if (a.command && RISKY_CMD_RE.test(a.command)) {
+      kind = 'risky-command';
+    } else if (ACCESS_CONTROL_WEAK_RE.test(body)) {
+      kind = 'access-control';
+    }
+    if (kind) out.push({ action: a, kind, strong });
   }
   return out;
 }
@@ -254,9 +273,9 @@ export function analyzeTree(tree) {
   tree.nodes.forEach((node, index) => {
     const secActs = securityActions(node);
     if (secActs.length) {
-      const hasCredential = secActs.some((s) => s.kind === 'credential' || s.kind === 'access-control' || s.kind === 'file');
-      const tier = hasCredential ? 'verified' : 'high';
-      const confidence = hasCredential ? 0.95 : 0.84;
+      const hasStrong = secActs.some((s) => s.strong);
+      const tier = hasStrong ? 'verified' : 'high';
+      const confidence = hasStrong ? 0.95 : 0.84;
       const targets = uniq(secActs.map((s) => s.action.file || s.action.command || s.action.input)).slice(0, 3);
       const kinds = uniq(secActs.map((s) => s.kind));
       addFailure({
@@ -476,7 +495,7 @@ export function renderMemoryMarkdown(tree, opts = {}) {
       (n.kind === 'root' || n.kind === 'direction' || n.kind === 'scope-change') &&
       isStrategicDirection(n)
   );
-  const latest = strategic[strategic.length - 1];
+  const latest = latestByTime(strategic);
   if (latest) {
     lines.push(`- Continue the most recent accepted direction: ${escapeMd(truncate(latest.title, 140))}`);
   } else {
@@ -489,6 +508,15 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   lines.push('');
 
   return lines.join('\n');
+}
+
+export function latestByTime(nodes) {
+  if (!nodes || !nodes.length) return null;
+  const timed = nodes.filter((n) => tsOf(n) !== null);
+  if (timed.length) {
+    return timed.reduce((best, n) => (tsOf(n) >= tsOf(best) ? n : best), timed[0]);
+  }
+  return nodes[nodes.length - 1];
 }
 
 export function isStrategicDirection(node) {

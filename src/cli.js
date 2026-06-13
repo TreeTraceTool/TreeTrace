@@ -20,7 +20,7 @@ import {
 import { makeTitle } from './extract.js';
 import { c, plural, truncate } from './util.js';
 
-const VERSION = '0.3.0';
+const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
 const HELP = `TreeTrace - turn AI coding sessions into regression-ready prompt lineage
 
@@ -64,13 +64,25 @@ export async function main(argv) {
   const log = opts.quiet ? () => {} : (msg) => process.stderr.write(`${msg}\n`);
 
   let sessions = [];
+  let sourceTool = 'claude';
   if (opts.stdin) {
     const text = readFileSync(0, 'utf8');
-    sessions = [parsePlainTranscript(text)];
-  } else if (opts.files.length) {
-    for (const file of opts.files) {
-      sessions.push(...(await ingestFile(file, opts.from, log)));
+    if (opts.from && opts.from !== 'transcript') {
+      const { sessions: adapted, tool } = ingestText(opts.from, text, 'stdin', log);
+      sessions = adapted;
+      sourceTool = tool;
+    } else {
+      sessions = [parsePlainTranscript(text)];
+      sourceTool = 'transcript';
     }
+  } else if (opts.files.length) {
+    const tools = new Set();
+    for (const file of opts.files) {
+      const { sessions: fileSessions, tool } = await ingestFile(file, opts.from, log);
+      sessions.push(...fileSessions);
+      tools.add(tool);
+    }
+    sourceTool = tools.size === 1 ? [...tools][0] : 'mixed';
   } else {
     const found = discoverSessions(projectDir);
     const filtered = opts.since
@@ -154,7 +166,7 @@ export async function main(argv) {
   analyzeTree(tree);
 
   const generatedAt = new Date().toISOString();
-  const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt };
+  const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt, sourceType: sourceTypeFor(sourceTool) };
 
   if (opts.handoff) {
     const pack = renderHandoff(tree, renderOpts);
@@ -173,7 +185,7 @@ export async function main(argv) {
   const report = renderReportMarkdown(tree, renderOpts);
 
   const requested = requestedArtifacts(opts, artifacts);
-  if (requested.length) {
+  if (requested.length && !opts.report) {
     for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
     mkdirSync(projectDir, { recursive: true });
     mkdirSync(ttDir, { recursive: true });
@@ -217,16 +229,37 @@ export async function main(argv) {
   if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
 }
 
+const SOURCE_TYPE_BY_TOOL = {
+  claude: 'claude-code-jsonl',
+  codex: 'codex-rollout',
+  chatgpt: 'chatgpt-export',
+  gemini: 'gemini-cli',
+  copilot: 'copilot-chat',
+  cursor: 'cursor-export',
+  grok: 'grok-cli',
+  transcript: 'transcript',
+};
+
+function sourceTypeFor(tool) {
+  return SOURCE_TYPE_BY_TOOL[tool] || 'claude-code-jsonl';
+}
+
+function ingestText(from, text, label, log) {
+  const sessions = adaptFrom(from, text, label);
+  log(c.dim(`  read ${from} format from ${label}`));
+  return { sessions, tool: from };
+}
+
 async function ingestFile(file, from, log) {
   if (from && from !== 'claude' && from !== 'transcript') {
     const text = readFileSync(file, 'utf8');
-    return adaptFrom(from, text, file);
+    return { sessions: adaptFrom(from, text, file), tool: from };
   }
   if (from === 'claude') {
-    return [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })];
+    return { sessions: [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })], tool: 'claude' };
   }
   if (from === 'transcript') {
-    return [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))];
+    return { sessions: [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))], tool: 'transcript' };
   }
 
   if (file.endsWith('.jsonl')) {
@@ -234,9 +267,9 @@ async function ingestFile(file, from, log) {
     const adapted = autoAdapt(text, file);
     if (adapted && adapted.sessions.some((s) => s.prompts.length)) {
       log(c.dim(`  detected ${adapted.tool} format in ${basename(file)}`));
-      return adapted.sessions;
+      return { sessions: adapted.sessions, tool: adapted.tool };
     }
-    return [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })];
+    return { sessions: [await parseSessionFile(file, { sessionId: basename(file, '.jsonl') })], tool: 'claude' };
   }
 
   if (file.endsWith('.json')) {
@@ -244,11 +277,11 @@ async function ingestFile(file, from, log) {
     const adapted = autoAdapt(text, file);
     if (adapted && adapted.sessions.some((s) => s.prompts.length)) {
       log(c.dim(`  detected ${adapted.tool} format in ${basename(file)}`));
-      return adapted.sessions;
+      return { sessions: adapted.sessions, tool: adapted.tool };
     }
   }
 
-  return [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))];
+  return { sessions: [parsePlainTranscript(readFileSync(file, 'utf8'), basename(file))], tool: 'transcript' };
 }
 
 function analysisArtifacts(ttDir, tree, renderOpts) {

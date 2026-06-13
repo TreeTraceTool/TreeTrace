@@ -12,11 +12,20 @@ function grokMessages(parsed) {
   return null;
 }
 
+function hasGrokSignal(parsed) {
+  if (Array.isArray(parsed)) return false;
+  if (typeof parsed.model === 'string' && /^grok/i.test(parsed.model)) return true;
+  if (typeof parsed.tool === 'string' && /grok/i.test(parsed.tool)) return true;
+  if (parsed.grok !== undefined || parsed.xai !== undefined) return true;
+  return false;
+}
+
 export function detectGrok(parsed) {
   if (!parsed || typeof parsed !== 'object') return false;
   const messages = grokMessages(parsed);
   if (!Array.isArray(messages) || !messages.length) return false;
-  return messages.every((m) => m && typeof m === 'object' && 'role' in m && 'content' in m);
+  if (!messages.every((m) => m && typeof m === 'object' && 'role' in m && 'content' in m)) return false;
+  return hasGrokSignal(parsed);
 }
 
 export function parseGrok(parsed, path, sessionId) {

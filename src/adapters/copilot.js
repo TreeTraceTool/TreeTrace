@@ -43,6 +43,9 @@ function ingestResponse(session, response, model) {
 }
 
 export function parseCopilot(parsed, path, sessionId) {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Array.isArray(parsed.requests)) {
+    return finalizeSession(newSession(path, sessionId));
+  }
   const session = newSession(path, parsed.sessionId || sessionId);
   let turn = 0;
   for (const req of parsed.requests) {

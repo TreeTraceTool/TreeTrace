@@ -1,5 +1,5 @@
-import { truncate, escapeMd } from './util.js';
-import { analyzeTree, isStrategicDirection } from './analyze.js';
+import { truncate, escapeMdTags } from './util.js';
+import { analyzeTree, isStrategicDirection, latestByTime } from './analyze.js';
 
 export function renderHandoff(tree, opts = {}) {
   const { projectName } = opts;
@@ -9,10 +9,10 @@ export function renderHandoff(tree, opts = {}) {
 
   const root = nodes.find((n) => n.kind === 'root') || nodes[0];
   const accepted = nodes.filter((n) => n.status !== 'abandoned');
-  const lastCheckpoint = [...accepted].reverse().find((n) => n.kind === 'checkpoint');
-  const lastAccepted = accepted.at(-1);
+  const lastCheckpoint = latestByTime(accepted.filter((n) => n.kind === 'checkpoint'));
+  const lastAccepted = latestByTime(accepted);
 
-  lines.push(`# Handoff brief: ${escapeMd(projectName)}`);
+  lines.push(`# Handoff brief: ${escapeMdTags(projectName)}`);
   lines.push('');
   lines.push(
     `You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (${stats.promptCount} prompts, ${stats.sessionCount} sessions). Read it fully before acting.`
@@ -22,18 +22,18 @@ export function renderHandoff(tree, opts = {}) {
   if (root) {
     lines.push('## Original goal');
     lines.push('');
-    lines.push(escapeMd(root.text.trim()));
+    lines.push(escapeMdTags(root.text.trim()));
     lines.push('');
   }
 
   lines.push('## Where things stand');
   lines.push('');
   if (lastCheckpoint) {
-    lines.push(`Last checkpoint: ${escapeMd(lastCheckpoint.text.trim())}`);
+    lines.push(`Last checkpoint: ${escapeMdTags(lastCheckpoint.text.trim())}`);
   }
   if (lastAccepted && lastAccepted !== lastCheckpoint) {
     lines.push('');
-    lines.push(`Most recent accepted direction: ${escapeMd(lastAccepted.text.trim())}`);
+    lines.push(`Most recent accepted direction: ${escapeMdTags(lastAccepted.text.trim())}`);
   }
   lines.push('');
 
@@ -43,7 +43,7 @@ export function renderHandoff(tree, opts = {}) {
   if (decisions.length) {
     lines.push('## Accepted decisions (in order)');
     lines.push('');
-    decisions.forEach((n, i) => lines.push(`${i + 1}. ${escapeMd(truncate(n.text.replace(/\s+/g, ' '), 360))}`));
+    decisions.forEach((n, i) => lines.push(`${i + 1}. ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 360))}`));
     lines.push('');
   }
 
@@ -53,7 +53,7 @@ export function renderHandoff(tree, opts = {}) {
     lines.push('');
     lines.push('These corrections were issued during the build. Do not repeat the mistakes they fixed:');
     lines.push('');
-    corrections.forEach((n) => lines.push(`- ${escapeMd(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
+    corrections.forEach((n) => lines.push(`- ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
     lines.push('');
   }
 
@@ -65,7 +65,7 @@ export function renderHandoff(tree, opts = {}) {
     lines.push('');
     lines.push('These approaches were tried and abandoned. Avoid unless told otherwise:');
     lines.push('');
-    abandoned.forEach((n) => lines.push(`- ${escapeMd(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
+    abandoned.forEach((n) => lines.push(`- ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
     lines.push('');
   }
 
@@ -73,7 +73,7 @@ export function renderHandoff(tree, opts = {}) {
     lines.push('## Agent memory lessons');
     lines.push('');
     analysis.lessons.slice(0, 6).forEach((lesson) => {
-      lines.push(`- ${escapeMd(truncate(lesson.text.replace(/\s+/g, ' '), 320))}`);
+      lines.push(`- ${escapeMdTags(truncate(lesson.text.replace(/\s+/g, ' '), 320))}`);
     });
     lines.push('');
   }

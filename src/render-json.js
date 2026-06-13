@@ -11,7 +11,7 @@ const RELATIONSHIP_BY_KIND = {
 };
 
 export function renderJson(tree, opts = {}) {
-  const { projectName, generatedBy = 'treetrace', version = '0.1.0' } = opts;
+  const { projectName, generatedBy = 'treetrace', version = '0.1.0', sourceType = 'claude-code-jsonl' } = opts;
   const { nodes, sessions, stats } = tree;
   const analysis = analyzeTree(tree);
 
@@ -21,7 +21,7 @@ export function renderJson(tree, opts = {}) {
     project: {
       name: projectName,
       generatedAt: opts.generatedAt || null,
-      sourceType: 'claude-code-jsonl',
+      sourceType,
     },
     stats: {
       prompts: stats.promptCount,

@@ -2,6 +2,23 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.4.1 - 2026-06-13
+
+A fix release driven by an adversarial end-to-end test pass across every adapter on real sessions. See [TESTING.md](TESTING.md) for the method and coverage.
+
+### Fixed
+
+- Security: bare hexadecimal secrets of 32 characters or more, a common shape for framework secret keys and HMAC signing keys, are now redacted. They were previously not detected and could reach a written artifact even with `--redact-auto`. A 40 character git commit hash is also redacted, which is the safe default for a privacy tool. Covered by a regression test and the leak self-test.
+- Redaction no longer aborts on a single very large token. A multi-megabyte pasted blob used to overflow the regex stack and end the run with an internal error. The scan is now bounded.
+- Security signal precision. A benign long flag such as `--force-device-scale-factor` and a user interface file named like `semantic-tokens.ts` no longer mint a high confidence credential signal. A single bare keyword with no corroborating evidence is down tiered below verified. Real credential files and secret-handling commands still verify.
+- `tree.json` records the actual source tool (`codex-rollout`, `chatgpt-export`, `gemini-cli`, `copilot-chat`, `cursor-export`, `grok-cli`, `claude-code-jsonl`, `transcript`) instead of always reporting `claude-code-jsonl`.
+- The handoff brief picks the latest accepted direction chronologically rather than by insertion order, so a multi-session export no longer names a stale topic.
+- `--from` is honored together with `--stdin`.
+- `--analysis` combined with `--report` writes both the analysis files and the reports instead of silently dropping the tree and reports.
+- The Copilot and Cursor adapters fail gracefully on malformed or empty JSON instead of throwing a raw error.
+- Markdown footers stamp the tool version, and command evidence inside code blocks is no longer HTML escaped.
+- Grok format detection requires a Grok specific signal, so a Cursor style export is no longer at risk of being routed to the Grok parser.
+
 ## 0.4.0 - 2026-06-13
 
 This release rebuilds the analysis layer so the output holds up on a real session, and turns the security positioning into something the tool actually produces.

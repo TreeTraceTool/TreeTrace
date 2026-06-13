@@ -21,6 +21,7 @@ export const RULES = [
   { id: 'discord-webhook', severity: 'high', re: /https:\/\/(?:ptb\.|canary\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[A-Za-z0-9_-]+/g },
   { id: 'jwt', severity: 'high', re: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g },
 
+  { id: 'hex-token', severity: 'medium', re: /\b[0-9a-fA-F]{32,512}\b/g },
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
   { id: 'url-basic-auth', severity: 'medium', re: /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^/\s:@'"`]{2,256}:[^/\s@'"`]{2,256}@[^\s'"`]{1,512}/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
@@ -32,7 +33,9 @@ export const RULES = [
 ];
 
 const HEX_RE = /^[0-9a-fA-F]+$/;
-const ENTROPY_CANDIDATE_RE = /\b[A-Za-z0-9+/_=-]{32,}\b/g;
+const ENTROPY_CANDIDATE_RE = /\b[A-Za-z0-9+/_=-]{32,4096}\b/g;
+const MAX_TOKEN_LEN = 4096;
+const TOKEN_CHAR_RE = /[A-Za-z0-9+/_=-]/;
 const VERSION_LIKE_RE = /^\d+[.\d-]*$/;
 const JOIN_SEPARATOR_RE = /[\s\u200B-\u200D\uFEFF]/;
 const JOINED_SCAN_RULE_IDS = new Set([
@@ -62,12 +65,46 @@ const LOOSE_RULES = RULES.filter((r) => JOINED_SCAN_RULE_IDS.has(r.id)).map((r) 
   ),
 }));
 
+function findOversizedRuns(text) {
+  const runs = [];
+  let start = -1;
+  for (let i = 0; i <= text.length; i++) {
+    const isTok = i < text.length && TOKEN_CHAR_RE.test(text[i]);
+    if (isTok) {
+      if (start === -1) start = i;
+    } else if (start !== -1) {
+      if (i - start > MAX_TOKEN_LEN) runs.push([start, i]);
+      start = -1;
+    }
+  }
+  return runs;
+}
+
 export function scanText(text) {
+  const oversized = text.length > MAX_TOKEN_LEN ? findOversizedRuns(text) : [];
+  let scanInput = text;
+  if (oversized.length) {
+    const chars = text.split('');
+    for (const [s, e] of oversized) {
+      for (let i = s; i < e; i++) chars[i] = '\n';
+    }
+    scanInput = chars.join('');
+  }
+
   const findings = [];
+  for (const [s, e] of oversized) {
+    findings.push({
+      ruleId: 'oversized-token',
+      severity: 'medium',
+      match: text.slice(s, e),
+      index: s,
+    });
+  }
+
   for (const rule of RULES) {
     rule.re.lastIndex = 0;
     let m;
-    while ((m = rule.re.exec(text)) !== null) {
+    while ((m = rule.re.exec(scanInput)) !== null) {
       findings.push({
         ruleId: rule.id,
         severity: rule.severity,
@@ -81,7 +118,7 @@ export function scanText(text) {
   const seenSpans = findings.map((f) => [f.index, f.index + f.match.length]);
   ENTROPY_CANDIDATE_RE.lastIndex = 0;
   let m;
-  while ((m = ENTROPY_CANDIDATE_RE.exec(text)) !== null) {
+  while ((m = ENTROPY_CANDIDATE_RE.exec(scanInput)) !== null) {
     const tok = m[0];
     if (HEX_RE.test(tok) || VERSION_LIKE_RE.test(tok)) continue;
     if (!/[A-Z]/.test(tok) || !/[a-z]/.test(tok) || !/[0-9]/.test(tok)) continue;
@@ -91,19 +128,19 @@ export function scanText(text) {
     findings.push({ ruleId: 'high-entropy-token', severity: 'medium', match: tok, index: start });
   }
 
-  findings.push(...scanJoinedProviderTokens(text, findings));
+  findings.push(...scanJoinedProviderTokens(scanInput, findings, text));
   return findings;
 }
 
-function scanJoinedProviderTokens(text, existing) {
+function scanJoinedProviderTokens(scanInput, existing, original = scanInput) {
   const chars = [];
   const indexMap = [];
-  for (let i = 0; i < text.length; i++) {
-    if (JOIN_SEPARATOR_RE.test(text[i])) continue;
-    chars.push(text[i]);
+  for (let i = 0; i < scanInput.length; i++) {
+    if (JOIN_SEPARATOR_RE.test(scanInput[i])) continue;
+    chars.push(scanInput[i]);
     indexMap.push(i);
   }
-  if (chars.length === text.length) return [];
+  if (chars.length === scanInput.length) return [];
 
   const joined = chars.join('');
   const existingSpans = existing.map((f) => [f.index, f.index + f.match.length]);
@@ -115,9 +152,9 @@ function scanJoinedProviderTokens(text, existing) {
       if (m[0].length <= 256) {
         const start = indexMap[m.index];
         const end = indexMap[m.index + m[0].length - 1] + 1;
-        const original = text.slice(start, end);
-        if (JOIN_SEPARATOR_RE.test(original) && !existingSpans.some(([s, e]) => start >= s && start < e)) {
-          findings.push({ ruleId: rule.id, severity: rule.severity, match: original, index: start });
+        const slice = original.slice(start, end);
+        if (JOIN_SEPARATOR_RE.test(slice) && !existingSpans.some(([s, e]) => start >= s && start < e)) {
+          findings.push({ ruleId: rule.id, severity: rule.severity, match: slice, index: start });
         }
       }
       if (m.index === rule.re.lastIndex) rule.re.lastIndex++;

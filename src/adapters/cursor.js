@@ -119,6 +119,9 @@ export function detectCursor(parsed) {
 }
 
 export function parseCursor(parsed, path, sessionId) {
+  if (!parsed || typeof parsed !== 'object') {
+    return finalizeSession(newSession(path, sessionId));
+  }
   const session = newSession(path, (parsed && parsed.composerId) || (parsed && parsed.sessionId) || sessionId);
   if (parsed && parsed.title) session.title = parsed.title;
   let turn = 0;

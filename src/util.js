@@ -79,3 +79,9 @@ export function escapeMd(text) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+export function escapeMdTags(text) {
+  return String(text == null ? '' : text)
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}

@@ -12,7 +12,7 @@ import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings } from '
 import { renderMarkdown, promptPack } from '../src/render-md.js';
 import { renderJson } from '../src/render-json.js';
 import { renderHandoff } from '../src/handoff.js';
-import { renderReportMarkdown } from '../src/report.js';
+import { renderReportMarkdown, renderTerminalSummary } from '../src/report.js';
 import {
   analyzeTree,
   renderFailuresJson,
@@ -117,6 +117,66 @@ test('redaction: rule coverage on known formats', () => {
   }
 });
 
+test('redaction: bare hex tokens (32+ chars) are detected, lower and upper case', async () => {
+  const lower = '6881f8290266f4cc939959917f893a2a88787eb24bbcb6b9c37594c72bf448c3';
+  const upper = lower.toUpperCase();
+  const half = lower.slice(0, 32);
+  for (const hex of [lower, upper, half]) {
+    const hits = scanText(`my key is session_hex=${hex} ok`).map((f) => f.ruleId);
+    assert.ok(hits.includes('hex-token'), `hex-token missed for ${hex} (got ${hits})`);
+  }
+  const findings = scanText(`session_hex=${lower}`);
+  const { decisions } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true });
+  const cleaned = applyDecisions(`session_hex=${lower}`, findings, decisions);
+  assert.ok(!cleaned.includes(lower), 'raw hex leaked after redaction');
+  assert.equal(shadowScan(cleaned, {}).length, 0, 'shadow scan should be clean after hex redaction');
+});
+
+test('redaction: end-to-end hex secret leaves no raw hex in any artifact', async () => {
+  const lower = '6881f8290266f4cc939959917f893a2a88787eb24bbcb6b9c37594c72bf448c3';
+  const upper = lower.toUpperCase();
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-hex-'));
+  const file = join(dir, 'hexconv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [`my key is session_hex=${lower} and HEX=${upper} ok`] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['got it'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--report', '--analysis', '--redact-auto', '--quiet']);
+    const artifacts = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!artifacts.includes(lower), 'lowercase hex secret leaked into an artifact');
+    assert.ok(!artifacts.includes(upper), 'uppercase hex secret leaked into an artifact');
+    assert.ok(artifacts.includes('[REDACTED:hex-token]'), 'expected a hex-token redaction marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('redaction: a single 12MB token completes without throwing and stays safe', () => {
+  const giant = 'A'.repeat(12 * 1024 * 1024);
+  const text = `prefix ${giant} suffix`;
+  let findings;
+  assert.doesNotThrow(() => { findings = scanText(text); }, 'oversized token must not overflow the regex stack');
+  assert.ok(findings.some((f) => f.ruleId === 'oversized-token'), 'oversized token should be flagged');
+  const normal = scanText('store ghp_0123456789abcdefghijklmnopqrstuvwxyzAB and more');
+  assert.ok(normal.some((f) => f.ruleId === 'github-token'), 'normal-size secrets still caught alongside the guard');
+  const { decisions } = applyDecisionsRoundTrip(text, findings);
+  assert.equal(shadowScan(decisions, {}).length, 0, 'oversized token should be cleaned after redaction');
+});
+
+function applyDecisionsRoundTrip(text, findings) {
+  const map = {};
+  for (const f of findings) map[sha256(f.match)] = { action: 'redact', replacement: maskFor(f), ruleId: f.ruleId };
+  return { decisions: applyDecisions(text, findings, map) };
+}
+
 test('redaction: split provider tokens are caught before shadow scan', () => {
   const dirty = 'token sk-proj-abcdefghijklmnop\nqrstu1234567890ABCDE end';
   const findings = scanText(dirty);
@@ -153,7 +213,7 @@ test('redaction: scan stays fast on long benign input (ReDoS guard)', () => {
 
 test('redaction: benign text produces no high/medium findings', () => {
   const benign =
-    'Refactor the parser in src/parse.js to handle commit 3f2a1b9c8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a and bump to v2.1.0-beta.3. The README.md needs a section on CONTRIBUTING.';
+    'Refactor the parser in src/parse.js to handle commit 3f2a1b9 and bump to v2.1.0-beta.3. The README.md needs a section on CONTRIBUTING.';
   const hard = scanText(benign).filter((f) => f.severity !== 'soft');
   assert.deepEqual(hard, []);
 });
@@ -200,6 +260,14 @@ test('renderers: markdown, json, handoff are consistent and footer-credited', as
   assert.ok(report.includes('## Output map'));
   assert.ok(report.includes('## Handoff brief'));
   assert.ok(report.includes('TREETRACE_REPORT.md'));
+});
+
+test('rendering: markdown footer stamps the tool version when provided', async () => {
+  const { tree } = await fixtureTree();
+  const md = renderMarkdown(tree, { projectName: 'demo', version: '0.4.0' });
+  assert.ok(md.includes('v0.4.0'), 'PROMPT_TREE.md footer should stamp the version');
+  const report = renderReportMarkdown(tree, { projectName: 'demo', version: '0.4.0', generatedAt: '2026-01-01T00:00:00.000Z' });
+  assert.ok(report.includes('v0.4.0'), 'TREETRACE_REPORT.md footer should stamp the version');
 });
 
 test('analysis renderers produce failures, lessons, evals, and memory', async () => {
@@ -270,6 +338,57 @@ test('analysis: a credential-handling Bash action produces a verified security s
   assert.equal(sec.tier, 'verified');
   assert.ok(/credential/.test(sec.evidence), 'evidence should name the credential kind');
   assert.ok(analysis.summary.tierCounts.verified >= 1);
+});
+
+test('analysis: benign --force-* chrome flag does not mint a verified security signal', () => {
+  const root = {
+    id: 'node_001', text: 'capture a screenshot of the page', title: 'capture a screenshot',
+    kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Bash', file: null, command: 'chrome --headless --force-device-scale-factor=1 --screenshot=out.png', model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [root] });
+  const sec = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk');
+  assert.equal(sec.length, 0, '--force-device-scale-factor must not fire as a security risk');
+});
+
+test('analysis: a token-named UI file does not mint a verified credential signal', () => {
+  for (const file of ['src/ui/semantic-tokens.ts', 'src/lexer/tokenizer.ts', 'theme/design-tokens.json']) {
+    const root = {
+      id: 'node_001', text: 'edit the theme', title: 'edit the theme',
+      kind: 'root', status: 'accepted', parent: null,
+      actions: [{ tool: 'Edit', file, command: null, model: 'm' }],
+    };
+    const analysis = analyzeTree({ nodes: [root] });
+    const verified = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk' && f.tier === 'verified');
+    assert.equal(verified.length, 0, `${file} must not produce a verified credential signal`);
+  }
+});
+
+test('analysis: a bare rbac keyword in a non-credential edit is down-tiered below verified', () => {
+  const root = {
+    id: 'node_001', text: 'edit the detector', title: 'edit the detector',
+    kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/analyze.js', input: 'const ACCESS = /rbac/i;', command: null, model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [root] });
+  const sec = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec.every((f) => f.tier !== 'verified' && f.confidence < 0.95), 'bare rbac keyword must not be verified/0.95');
+});
+
+test('analysis: a real credential file and a real secret command still verify at 0.95', () => {
+  const fileNode = {
+    id: 'node_001', text: 'harden auth', title: 'harden auth', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/auth/session.ts', command: null, model: 'm' }],
+  };
+  const fileSec = analyzeTree({ nodes: [fileNode] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(fileSec && fileSec.tier === 'verified' && fileSec.confidence === 0.95, 'a genuine auth file must stay verified');
+
+  const cmdNode = {
+    id: 'node_001', text: 'deploy', title: 'deploy', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Bash', file: null, command: '. /srv/app/.env; wrangler pages deploy', input: '. /srv/app/.env; wrangler pages deploy', model: 'm' }],
+  };
+  const cmdSec = analyzeTree({ nodes: [cmdNode] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(cmdSec && cmdSec.tier === 'verified', 'a genuine credential command must stay verified');
 });
 
 test('analysis: a PAT-update prompt produces an inferred security signal even with no action', () => {
@@ -384,6 +503,36 @@ test('analysis: a single benign prompt does not yield multiple failure types', (
   }
 });
 
+test('analysis: latest accepted direction is chronological, not insertion order', () => {
+  const root = {
+    id: 'node_001', text: 'pick a research topic', title: 'pick a research topic',
+    kind: 'root', status: 'accepted', parent: null, ts: '2026-01-01T00:00:00.000Z', actions: [],
+  };
+  const newest = {
+    id: 'node_002', text: 'lets dig into Amazon Nova and the Karunanidhi essay direction',
+    title: 'Amazon Nova and Karunanidhi', kind: 'direction', status: 'accepted', parent: root,
+    ts: '2026-03-01T00:00:00.000Z', actions: [],
+  };
+  const stale = {
+    id: 'node_003', text: 'lets explore the Seoul travel itinerary in depth for the trip',
+    title: 'Seoul travel itinerary', kind: 'direction', status: 'accepted', parent: newest,
+    ts: '2026-02-01T00:00:00.000Z', actions: [],
+  };
+  const nodes = [root, newest, stale];
+  const tree = { nodes, stats: { promptCount: 3, sessionCount: 2 } };
+  const summary = renderTerminalSummary(tree, { projectName: 'demo' });
+  assert.ok(/Amazon Nova/i.test(summary), 'terminal summary should name the chronologically newest direction');
+  assert.ok(!/Seoul/i.test(summary.split('Latest accepted direction:')[1] || ''), 'must not name the stale Seoul session as latest');
+
+  const handoff = renderHandoff(tree, { projectName: 'demo' });
+  const stand = handoff.split('## Where things stand')[1].split('##')[0];
+  assert.ok(/Amazon Nova/i.test(stand), 'handoff should name the chronologically newest accepted direction');
+
+  const memory = renderMemoryMarkdown(tree, { projectName: 'demo' });
+  const next = memory.slice(memory.indexOf('## Preferred next work'));
+  assert.ok(/Amazon Nova/i.test(next), 'agent memory should point at the chronologically newest direction');
+});
+
 test('analysis: a corrector is never linked with an earlier timestamp than its failure', () => {
   const failure = {
     id: 'node_001', text: 'i do not see the deck, just the index file showing text',
@@ -449,6 +598,34 @@ test('cli: default run writes analysis artifacts with redaction', async () => {
     ].map((file) => readFileSync(join(dir, file), 'utf8')).join('\n');
     assert.ok(!exported.includes('sk-ant-'), 'anthropic key leaked');
     assert.ok(!exported.includes('hunter2pass'), 'basic-auth password leaked');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cli: --analysis combined with --report writes both analysis files and the reports', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-both-'));
+  try {
+    await main(['--file', FIXTURE, '--dir', dir, '--analysis', '--report', '--redact-auto', '--quiet']);
+    for (const file of [
+      'TREETRACE_REPORT.md', 'PROMPT_TREE.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ]) {
+      assert.ok(existsSync(join(dir, file)), `${file} missing when --analysis and --report combined`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('cli: a copilot import records a per-adapter sourceType, not claude-code-jsonl', async () => {
+  const fixture = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'adapters', 'copilot-chatsession.json');
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-src-'));
+  try {
+    await main(['--from', 'copilot', '--file', fixture, '--dir', dir, '--redact-auto', '--quiet']);
+    const tree = JSON.parse(readFileSync(join(dir, '.treetrace/tree.json'), 'utf8'));
+    assert.equal(tree.project.sourceType, 'copilot-chat', 'sourceType should reflect the copilot adapter');
+    assert.notEqual(tree.project.sourceType, 'claude-code-jsonl');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -522,6 +699,22 @@ test('redaction: a token inside a Bash action body is redacted end to end', asyn
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('handoff: command operators are not HTML-escaped in the brief', () => {
+  const root = {
+    id: 'node_001', text: 'run rm -rf build && mkdir build to reset the workspace',
+    title: 'reset the workspace', kind: 'root', status: 'accepted', parent: null, actions: [],
+  };
+  const handoff = renderHandoff({ nodes: [root], stats: { promptCount: 1, sessionCount: 1 } }, { projectName: 'demo' });
+  assert.ok(handoff.includes('rm -rf build && mkdir build'), 'command should keep raw && in the handoff brief');
+  assert.ok(!handoff.includes('&amp;&amp;'), 'handoff must not HTML-escape && to &amp;&amp;');
+  const inject = {
+    id: 'node_001', text: 'do not run <script>alert(1)</script> ever',
+    title: 'no scripts', kind: 'root', status: 'accepted', parent: null, actions: [],
+  };
+  const handoff2 = renderHandoff({ nodes: [inject], stats: { promptCount: 1, sessionCount: 1 } }, { projectName: 'demo' });
+  assert.ok(!handoff2.includes('<script>'), 'angle-bracket tags should still be neutralized in the handoff brief');
 });
 
 test('plain transcript fallback parses User:/Assistant: markers', () => {

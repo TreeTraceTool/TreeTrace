@@ -8,6 +8,11 @@ import { adaptFrom, autoAdapt, TOOLS } from '../src/adapters/index.js';
 import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
 import { analyzeTree } from '../src/analyze.js';
+import { detectChatGPT } from '../src/adapters/chatgpt.js';
+import { detectCopilot } from '../src/adapters/copilot.js';
+import { detectGeminiJson } from '../src/adapters/gemini.js';
+import { detectCursor } from '../src/adapters/cursor.js';
+import { detectGrok } from '../src/adapters/grok.js';
 
 const DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'adapters');
 const fx = (name) => join(DIR, name);
@@ -129,6 +134,47 @@ test('adapter output flows through the full classify/tree pipeline', () => {
     assert.ok(tree.nodes.length >= 1, `no nodes for ${name}`);
     assert.equal(tree.nodes[0].kind, 'root', `first node not root for ${name}`);
     assert.ok(tree.roots.length >= 1);
+  }
+});
+
+test('detectors: exactly one JSON detector fires per fixture (no cursor/grok overlap)', () => {
+  const jsonDetectors = {
+    chatgpt: detectChatGPT,
+    copilot: detectCopilot,
+    gemini: detectGeminiJson,
+    cursor: detectCursor,
+    grok: detectGrok,
+  };
+  const expected = {
+    'chatgpt-conversations.json': 'chatgpt',
+    'copilot-chatsession.json': 'copilot',
+    'gemini-session.json': 'gemini',
+    'cursor-export.json': 'cursor',
+    'grok-session.json': 'grok',
+  };
+  for (const [name, want] of Object.entries(expected)) {
+    const parsed = JSON.parse(read(name));
+    const fired = Object.entries(jsonDetectors).filter(([, fn]) => fn(parsed)).map(([k]) => k);
+    assert.deepEqual(fired, [want], `${name} should fire exactly [${want}], got [${fired.join(', ')}]`);
+  }
+});
+
+test('detectGrok requires a grok-specific signal, not just role/content messages', () => {
+  const generic = { messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'hello' }] };
+  assert.equal(detectGrok(generic), false, 'generic role/content dump must not be claimed by grok');
+  assert.equal(detectGrok({ model: 'grok-4', messages: generic.messages }), true, 'a grok model marker should be detected');
+});
+
+test('copilot and cursor adapters handle null/primitive JSON without throwing', () => {
+  for (const bad of ['null', '42', 'true', '"hi"']) {
+    assert.doesNotThrow(() => {
+      const c = adaptFrom('copilot', bad, fx('bad.json'));
+      assert.equal(c[0].prompts.length, 0);
+    }, `copilot threw on ${bad}`);
+    assert.doesNotThrow(() => {
+      const c = adaptFrom('cursor', bad, fx('bad.json'));
+      assert.equal(c[0].prompts.length, 0);
+    }, `cursor threw on ${bad}`);
   }
 });
 
