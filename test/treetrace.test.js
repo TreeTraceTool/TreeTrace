@@ -122,6 +122,50 @@ test('redaction: rule coverage on known formats', () => {
   }
 });
 
+test('redaction: escaped characters inside quoted secret assignments are still caught', () => {
+  const cases = [
+    ['escaped newline', '{"api_key":"line1\\nline2line2"}'],
+    ['escaped tab', '{"api_key":"col1\\tcol2value"}'],
+    ['escaped quote', '{"api_key":"abc\\"defghij"}'],
+    ['escaped backslash', '{"api_key":"abc\\\\defghij"}'],
+    ['single-quoted escaped newline', "{'password':'line1\\nline2value'}"],
+    ['backtick escaped newline', 'const secret = `line1\\nline2value`;'],
+  ];
+  for (const [label, sample] of cases) {
+    const hits = scanText(sample).map((f) => f.ruleId);
+    assert.ok(
+      hits.includes('secret-assignment'),
+      `${label}: escaped secret value should be caught (got ${JSON.stringify(hits)} for ${sample})`
+    );
+  }
+});
+
+test('redaction: end-to-end escaped-JSON secret leaves no raw value in any artifact', async () => {
+  const rawValue = 'line1\\nline2line2line2';
+  const secretLine = `config is {"api_key":"${rawValue}"}`;
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-esc-'));
+  const file = join(dir, 'escconv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [secretLine] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--report', '--analysis', '--redact-auto', '--quiet']);
+    const artifacts = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!artifacts.includes(rawValue), 'raw escaped-JSON secret value leaked into an artifact');
+    assert.ok(artifacts.includes('[REDACTED:secret-assignment]'), 'expected a secret-assignment redaction marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('redaction: bare hex tokens (32+ chars) are detected, lower and upper case', async () => {
   const lower = '6881f8290266f4cc939959917f893a2a88787eb24bbcb6b9c37594c72bf448c3';
   const upper = lower.toUpperCase();
@@ -1149,6 +1193,53 @@ test('hallucinations: an Edit to a nonexistent file is flagged, a Write to a new
     assert.ok(detectHallucinations(edit, dir).hallucinations.some((h) => h.reference === 'src/ghost.js'), 'Edit to a nonexistent file should still be flagged');
     const write = { nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text: 'create src/created.js', title: 't', actions: [{ tool: 'Write', file: 'src/created.js', input: 'x', command: null }] }] };
     assert.ok(!detectHallucinations(write, dir).hallucinations.some((h) => h.reference === 'src/created.js'), 'Write to a new file should be suppressed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: dotted code symbols are not flagged as missing file paths', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    for (const sym of ['JSON.parse', 'params.arguments', 'params.name', 'test.skip', 'describe.skip', 'obj.method', 'array.length']) {
+      const refs = detectHallucinations(mk(sym), dir).hallucinations
+        .filter((h) => h.category === 'hallucinated_file_or_path')
+        .map((h) => h.reference);
+      assert.deepEqual(refs, [], `code symbol "${sym}" should not be flagged as a missing path (got ${JSON.stringify(refs)})`);
+    }
+    const real = detectHallucinations(mk('open src/missing.ts'), dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+    assert.ok(real.includes('src/missing.ts'), 'a genuinely missing path with a known extension must still be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: missing extensionless files and local paths are flagged, existing ones are not', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    const flagged = (text) => detectHallucinations(mk(text), dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+
+    assert.ok(flagged('open Dockerfile').includes('Dockerfile'), 'a missing Dockerfile should be flagged');
+    assert.ok(flagged('open .env').includes('.env'), 'a missing .env should be flagged');
+    assert.ok(flagged('open Makefile').includes('Makefile'), 'a missing Makefile should be flagged');
+    assert.ok(flagged('open src/route').includes('src/route'), 'a missing extensionless local path should be flagged');
+
+    writeFileSync(join(dir, 'Dockerfile'), 'FROM node:20\n');
+    writeFileSync(join(dir, '.env'), 'X=1\n');
+    assert.ok(!flagged('open Dockerfile and .env').includes('Dockerfile'), 'an existing Dockerfile must not be flagged');
+    assert.ok(!flagged('open Dockerfile and .env').includes('.env'), 'an existing .env must not be flagged');
+
+    const noise = detectHallucinations(mk('JSON.parse and test.skip and update the README section about CONTRIBUTING'), dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+    assert.ok(!noise.includes('JSON.parse') && !noise.includes('test.skip'), 'extensionless detection must not reintroduce code-symbol false positives');
+    assert.ok(!noise.includes('README') && !noise.includes('CONTRIBUTING'), 'a known filename word in prose without a file-op verb must not be flagged');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -172,7 +172,7 @@ TreeTrace runs inside the repository, so it can verify what the agent claimed ag
 - `hallucinated_file_or_path`
 - `hallucinated_import_or_package`
 
-Each one becomes an eval candidate, for example "verify the file or import exists before editing." The checks are fully deterministic: file and path existence and import and package declaration. To avoid false positives, files the agent created during the session, relative paths, Node builtins, and Python standard library modules are excluded.
+Each one becomes an eval candidate, for example "verify the file or import exists before editing." The checks are fully deterministic: file and path existence and import and package declaration. File references include paths with a known extension, common extensionless files such as `Dockerfile`, `Makefile`, `README`, and `.env`, and slash-containing local paths such as `src/route`. To avoid false positives, files the agent created during the session, relative paths, Node builtins, and Python standard library modules are excluded, ordinary dotted code symbols such as `JSON.parse` or `test.skip` are not treated as paths, and known filename words are only flagged when a file-operation verb is nearby.
 
 This is honest about its limits. File, path, import, and package existence are solid. Per-symbol and per-API resolution inside a module is not attempted, because that would need an AST and a language toolchain, which would break the zero-dependency promise. TreeTrace does not claim to detect a hallucinated function or method on a real module.
 

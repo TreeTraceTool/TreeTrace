@@ -19,10 +19,34 @@ const PY_STDLIB = new Set([
   'html', 'email', 'warnings', 'contextlib', 'operator', 'weakref', 'gc', 'platform', 'signal',
 ]);
 
+const KNOWN_FILE_EXTENSIONS = new Set([
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'mts', 'cts', 'd.ts',
+  'py', 'pyi', 'rb', 'go', 'rs', 'java', 'kt', 'kts', 'scala', 'clj', 'cljs',
+  'c', 'h', 'cc', 'cpp', 'cxx', 'hpp', 'hh', 'm', 'mm', 'swift', 'php', 'cs',
+  'lua', 'pl', 'pm', 'r', 'jl', 'dart', 'ex', 'exs', 'erl', 'hrl', 'elm', 'hs',
+  'json', 'jsonc', 'json5', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env',
+  'xml', 'html', 'htm', 'css', 'scss', 'sass', 'less', 'svg', 'vue', 'svelte', 'astro',
+  'md', 'mdx', 'markdown', 'rst', 'txt', 'csv', 'tsv', 'sql', 'graphql', 'gql',
+  'sh', 'bash', 'zsh', 'fish', 'ps1', 'bat', 'cmd', 'dockerfile', 'lock', 'gradle',
+  'gitignore', 'gitattributes', 'npmrc', 'nvmrc', 'editorconfig', 'eslintrc', 'prettierrc',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'pdf', 'proto', 'tf', 'tfvars',
+]);
+
+const KNOWN_EXTENSIONLESS_FILES = new Set([
+  'dockerfile', 'makefile', 'readme', 'license', 'licence', 'notice', 'changelog',
+  'authors', 'contributing', 'codeowners', 'procfile', 'rakefile', 'gemfile',
+  'pipfile', 'brewfile', 'vagrantfile', 'jenkinsfile', 'gnumakefile',
+  '.env', '.gitignore', '.gitattributes', '.npmrc', '.nvmrc', '.editorconfig',
+  '.dockerignore', '.eslintrc', '.prettierrc', '.babelrc', '.bashrc', '.zshrc',
+]);
+
 const FILE_TOKEN_RE = /(?:[\w@./+-]*\/)?[\w@.+-]+\.[A-Za-z][A-Za-z0-9]{0,9}\b/g;
+const PATHISH_TOKEN_RE = /(?:\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+\/?/g;
+const BAREWORD_TOKEN_RE = /(?:^|[\s'"`([{])(\.?[A-Za-z][\w.-]*)(?=$|[\s'"`)\]},.;:])/g;
 const REL_PREFIX_RE = /^(?:\.\/|\.\.\/)/;
 const URL_LIKE_RE = /:\/\//;
 const VERSION_LIKE_RE = /^\d+(?:\.\d+)+$/;
+const FILE_OP_VERB_RE = /\b(?:open|edit|read|cat|touch|create|write|delete|rm|view|append|chmod|mv|cp|run)\b/i;
 const JS_IMPORT_RE =
   /\b(?:import|export)\b[^;\n]*?\bfrom\s*['"]([^'"\n]+)['"]|\brequire\(\s*['"]([^'"\n]+)['"]\s*\)|\bimport\(\s*['"]([^'"\n]+)['"]\s*\)/g;
 const PY_IMPORT_RE = /^[ \t]*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][\w.]*(?:\s*,\s*[A-Za-z_][\w.]*)*))/gm;
@@ -114,13 +138,38 @@ function normalizeFileKey(p) {
   return p.replace(/^\.?\//, '').replace(/\\/g, '/').toLowerCase();
 }
 
+function tokenExtension(tok) {
+  const dot = tok.lastIndexOf('.');
+  if (dot < 0) return '';
+  return tok.slice(dot + 1).toLowerCase();
+}
+
+function hasSlash(tok) {
+  return tok.includes('/');
+}
+
 function looksLikeFileToken(tok) {
   if (tok.length < 3 || tok.length > 200) return false;
   if (URL_LIKE_RE.test(tok)) return false;
   if (VERSION_LIKE_RE.test(tok)) return false;
-  const ext = tok.slice(tok.lastIndexOf('.') + 1).toLowerCase();
+  const ext = tokenExtension(tok);
   if (!ext || ext.length > 10) return false;
-  return true;
+  if (hasSlash(tok)) return true;
+  return KNOWN_FILE_EXTENSIONS.has(ext);
+}
+
+function looksLikeExtensionlessFile(tok, context) {
+  if (tok.length < 3 || tok.length > 200) return false;
+  if (URL_LIKE_RE.test(tok)) return false;
+  const lower = tok.toLowerCase().replace(/^\.\//, '');
+  if (KNOWN_EXTENSIONLESS_FILES.has(lower)) {
+    if (lower.startsWith('.')) return true;
+    return FILE_OP_VERB_RE.test(context || '');
+  }
+  if (hasSlash(tok) && !tokenExtension(tok)) {
+    return /^(?:\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+\/?$/.test(tok);
+  }
+  return false;
 }
 
 function withinProjectDir(projectDir, target) {
@@ -169,13 +218,25 @@ function collectFileReferences(tree) {
     seen.add(key);
     refs.push({ token: tok, key, nodeId });
   };
+  const pushExtensionless = (raw, nodeId, context) => {
+    const tok = raw.trim().replace(/^['"`(]+|['"`),.;:]+$/g, '');
+    if (tokenExtension(tok) && !KNOWN_EXTENSIONLESS_FILES.has(tok.toLowerCase().replace(/^\.\//, ''))) return;
+    if (!looksLikeExtensionlessFile(tok, context)) return;
+    const key = normalizeFileKey(tok);
+    if (seen.has(key)) return;
+    seen.add(key);
+    refs.push({ token: tok, key, nodeId });
+  };
   for (const node of tree.nodes) {
     if (node.status === 'abandoned') continue;
     const text = String(node.text || '').slice(0, MAX_TEXT_SCAN);
     for (const m of text.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
+    for (const m of text.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, text);
+    for (const m of text.matchAll(BAREWORD_TOKEN_RE)) pushExtensionless(m[1], node.id, text);
     for (const a of node.actions || []) {
       const body = `${a.input || ''}`.slice(0, MAX_TEXT_SCAN);
       for (const m of body.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
+      for (const m of body.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, body);
     }
   }
   return refs;

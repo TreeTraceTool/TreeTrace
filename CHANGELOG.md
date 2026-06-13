@@ -4,6 +4,15 @@ Notable changes to TreeTrace. The format follows Keep a Changelog, and the proje
 
 ## Unreleased
 
+### Security
+
+- Redaction now catches generic secret assignments whose quoted value contains escaped characters, such as the serialized JSON form `{"api_key":"line1\nline2"}` with a literal backslash, an escaped quote, an escaped tab, or an escaped backslash. Serialized JSON is a common way for multiline and escaped secret values to appear in transcripts, and these shapes previously reached written artifacts even under `--redact-auto`.
+
+### Fixed
+
+- The hallucination detector no longer reports ordinary dotted code symbols such as `JSON.parse`, `params.name`, `test.skip`, and `describe.skip` as missing file paths. A dotted token with no slash is only treated as a file reference when its extension is a known file extension, so member expressions are left alone while genuine paths such as `src/missing.ts` are still flagged.
+- The hallucination detector now recognizes common extensionless file references, including `Dockerfile`, `Makefile`, `README`, `.env`, and slash-containing local paths such as `src/route`. Known filename words are only flagged when a file-operation verb is nearby, which keeps prose mentions from becoming false positives.
+
 ## 0.5.0 - 2026-06-13
 
 ### Added
