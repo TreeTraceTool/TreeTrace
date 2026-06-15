@@ -26,6 +26,11 @@ export const RULES = [
   { id: 'url-basic-auth', severity: 'medium', re: /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^/\s:@'"`]{2,256}:[^/\s@'"`]{2,256}@[^\s'"`]{1,512}/gi },
   { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
   { id: 'secret-assignment', severity: 'medium', re: /["'`]?\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|token|bearer)\b["'`]?\s*[:=]\s*(?!(?:["'`]?\s*)?(?:\$\{|\$\(|<|%|\*{3}|\.{3}|REDACTED|\[REDACTED|xxx+|placeholder|changeme|example|your[-_]|null\b|true\b|false\b))(?:"(?:[^"\\]|\\.){4,512}"|'(?:[^'\\]|\\.){4,512}'|`(?:[^`\\]|\\.){4,512}`|[^\s'"`,;){}]{6,512})/gi },
+  // Fail-closed companion: a secret-key assignment whose quoted value contains ANY backslash escape
+  // is redacted even when the escape-inflated character count falls under the generic floor above.
+  // Escaped JSON string values (literal \n, \t, \", \\) are the common serialized form of a secret;
+  // counting an escape as two characters must never let a short escaped value slip the gate.
+  { id: 'secret-assignment', severity: 'medium', re: /["'`]?\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|token|bearer)\b["'`]?\s*[:=]\s*(?!(?:["'`]?\s*)?(?:\$\{|\$\(|<|%|\*{3}|\.{3}|REDACTED|\[REDACTED|xxx+|placeholder|changeme|example|your[-_]|null\b|true\b|false\b))(?:"(?:[^"\\]|\\.)*?\\.(?:[^"\\]|\\.)*?"|'(?:[^'\\]|\\.)*?\\.(?:[^'\\]|\\.)*?'|`(?:[^`\\]|\\.)*?\\.(?:[^`\\]|\\.)*?`)/gi },
 
   { id: 'email', severity: 'soft', re: /\b[A-Za-z0-9._%+-]+@(?!(?:users\.noreply\.github\.com|example\.(?:com|org)))[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
   { id: 'ipv4', severity: 'soft', re: /\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b(?!\.\d)/g },

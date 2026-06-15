@@ -50,6 +50,7 @@ const STOPWORDS = new Set([
   'when', 'where', 'which', 'will', 'about', 'agent', 'make', 'made', 'show', 'look',
 ]);
 
+const PROCESS_LABEL_CAP = 2;
 const CONSTRAINT_PER_NODE_CAP = 3;
 const CONSTRAINT_LIST_CAP = 10;
 const CONSTRAINT_CLAUSE_MAX = 160;
@@ -106,6 +107,15 @@ const TEST_SKIP_API_RE =
 const TEST_SKIP_RE =
   /\b(?:disabl|skip|remov|delet|comment(?:ed)? out|drop|turn(?:ed)? off|x?(?:it|describe)\.skip|--no-tests?|--skip-tests?)\w*\b[^.\n]{0,24}\btests?\b|\btests?\b[^.\n]{0,24}\b(?:disabl|skip|remov|delet|comment(?:ed)? out|turn(?:ed)? off)\w*/i;
 
+// P6: strong human security-correction phrasing. Used as a corroborating co-signal and as
+// the inferred-tier recall backstop (must never mint a strong/verified label by itself).
+const SECURITY_CORRECTION_RE =
+  /\b(?:don'?t|do not|never)\b[^.]{0,30}\b(?:leak|expose|commit|hardcode|hard[- ]?code|push|publish)\b[^.]{0,30}\b(?:secret|secrets|token|tokens|key|keys|credential|credentials|password|passwords|env|api)\b|\b(?:rotate|revoke|regenerate|invalidate)\b[^.]{0,25}\b(?:that|the|this|those|your|my)?\s*(?:secret|token|key|credential|password|pat|api[- ]?key|access token)\b|\bthat'?s? (?:a|the|my|our) (?:secret|credential|api[- ]?key|token|password)\b|\b(?:revert|undo|roll ?back)\b[^.]{0,25}\b(?:the|that|those)?\s*(?:auth|security|permission|access[- ]?control|rbac|credential)\b|\b(?:you|it)\b[^.]{0,20}\b(?:leaked|exposed|hardcoded|hard[- ]?coded|committed)\b[^.]{0,25}\b(?:secret|token|key|credential|password|env)\b/i;
+
+function hasSecurityCorrection(text) {
+  return typeof text === 'string' && text.length <= 4000 && SECURITY_CORRECTION_RE.test(text);
+}
+
 export function classifySecuritySurface(file) {
   if (!file) return null;
   for (const rule of SECURITY_SURFACE_RULES) {
@@ -126,29 +136,85 @@ export function mentionsTestSkip(text) {
   );
 }
 
+// P3: return ALL matching kinds per action instead of first-match-wins, so a node that
+// is both a credential leak and a disabled-test (etc.) surfaces every class. Each kind
+// carries its own strong/weak flag and the body that triggered it (for the audit trail).
+// `weak` marks a lone keyword (bare rbac/access-control) that needs a co-signal (P4).
 function securityActions(node) {
   const out = [];
   for (const a of node.actions || []) {
     const body = `${a.command || ''} ${a.input || ''}`;
-    let kind = null;
-    let strong = false;
-    if (SECRET_CONTENT_RE.test(body)) {
-      kind = 'credential';
-      strong = true;
-    } else if (a.file && isCredentialFile(a.file)) {
-      kind = 'file';
-      strong = true;
-    } else if (ACCESS_CONTROL_CONTENT_RE.test(body)) {
-      kind = 'access-control';
-      strong = true;
-    } else if (a.command && RISKY_CMD_RE.test(a.command)) {
-      kind = 'risky-command';
-    } else if (ACCESS_CONTROL_WEAK_RE.test(body)) {
-      kind = 'access-control';
+    const kinds = [];
+    if (SECRET_CONTENT_RE.test(body)) kinds.push({ kind: 'credential', strong: true });
+    if (a.file && isCredentialFile(a.file)) kinds.push({ kind: 'file', strong: true });
+    if (ACCESS_CONTROL_CONTENT_RE.test(body)) kinds.push({ kind: 'access-control', strong: true });
+    if (a.command && RISKY_CMD_RE.test(a.command)) kinds.push({ kind: 'risky-command', strong: false });
+    // Weak keyword: only counts when no strong access-control content already fired on this action.
+    if (ACCESS_CONTROL_WEAK_RE.test(body) && !kinds.some((k) => k.kind === 'access-control')) {
+      kinds.push({ kind: 'access-control', strong: false, weak: true });
     }
-    if (kind) out.push({ action: a, kind, strong });
+    for (const k of kinds) out.push({ action: a, ...k });
   }
   return out;
+}
+
+// Anchor confidences kept stable so existing tiers/numbers do not regress:
+//   one strong signal  -> verified / 0.95 (unchanged anchor the suite asserts on)
+//   weak-only + cosignal-> high / 0.84
+//   inferred backstops  -> 0.62-0.70
+const SECURITY_STRONG_BASE = 0.95;
+const SECURITY_WEAK_BASE = 0.84;
+
+// P1: derive a security signal's confidence and tier from how many INDEPENDENT signals
+// corroborate it, instead of a constant two-bucket value. Each contributing signal is
+// listed in the evidence text (with node ids upstream) so the verdict stays auditable.
+// P4: a lone weak keyword (bare rbac/access-control) scores low and lands `inferred`
+// unless a real co-signal (credential content, security surface file, or human security
+// correction) is present.
+function scoreSecurity({ secActs, surface, humanCorrection }) {
+  const signals = [];
+  const strongActs = secActs.filter((s) => s.strong);
+  const weakActs = secActs.filter((s) => !s.strong);
+  const hasStrong = strongActs.length > 0;
+  const hasWeakKeywordOnly = !hasStrong && secActs.some((s) => s.weak);
+
+  if (strongActs.some((s) => s.kind === 'credential')) signals.push('strong credential content');
+  if (strongActs.some((s) => s.kind === 'file')) signals.push('credential filename');
+  if (strongActs.some((s) => s.kind === 'access-control')) signals.push('access-control command');
+  if (weakActs.some((s) => s.kind === 'risky-command')) signals.push('risky command');
+  if (weakActs.some((s) => s.weak)) signals.push('access-control keyword');
+  if (surface) signals.push(`security surface (${surface})`);
+  if (humanCorrection) signals.push('human security correction');
+
+  // Independent corroboration count beyond the primary signal nudges confidence within band.
+  const corroboration = Math.max(0, signals.length - 1);
+
+  let tier;
+  let base;
+  if (hasStrong) {
+    tier = 'verified';
+    base = SECURITY_STRONG_BASE;
+  } else if (hasWeakKeywordOnly) {
+    // P4 co-signal gate: a bare keyword with a real co-signal earns `high`; alone it stays `inferred`.
+    const cosignal = Boolean(surface) || humanCorrection || weakActs.some((s) => s.kind === 'risky-command');
+    if (cosignal) {
+      tier = 'high';
+      base = SECURITY_WEAK_BASE;
+    } else {
+      tier = 'inferred';
+      base = 0.62;
+    }
+  } else {
+    // risky-command (no keyword) or surface-only corroboration
+    tier = 'high';
+    base = SECURITY_WEAK_BASE;
+  }
+
+  // Within-band lift from extra corroboration, clamped to the band ceiling so the
+  // verified anchor (0.95) and existing assertions never move.
+  const ceiling = tier === 'verified' ? 0.95 : tier === 'high' ? 0.9 : 0.7;
+  const confidence = Math.min(ceiling, Math.round((base + 0.02 * corroboration) * 100) / 100);
+  return { tier, confidence, signals };
 }
 
 function fileHint(node) {
@@ -306,14 +372,18 @@ export function analyzeTree(tree) {
     return failure;
   };
 
+  const securityNodeIds = new Set();
   tree.nodes.forEach((node, index) => {
     const secActs = securityActions(node);
     if (secActs.length) {
-      const hasStrong = secActs.some((s) => s.strong);
-      const tier = hasStrong ? 'verified' : 'high';
-      const confidence = hasStrong ? 0.95 : 0.84;
+      // P1: corroborating co-signals -- surface class on a touched file, and a human
+      // security correction that points back at this node -- feed the derived score.
+      const surface = uniq((node.actions || []).map((a) => classifySecuritySurface(a.file))).filter(Boolean)[0] || null;
+      const humanCorrection =
+        node.kind !== 'correction' ? Boolean(nearestSecurityCorrection(tree.nodes, node)) : false;
+      const { tier, confidence, signals } = scoreSecurity({ secActs, surface, humanCorrection });
       const targets = uniq(secActs.map((s) => s.action.file || s.action.command || s.action.input)).slice(0, 3);
-      const kinds = uniq(secActs.map((s) => s.kind));
+      const kinds = uniq(secActs.map((s) => s.kind)); // P3: every matching class, not first-match-wins
       addFailure({
         type: 'security_or_privacy_risk',
         confidence,
@@ -321,9 +391,10 @@ export function analyzeTree(tree) {
         failureNode: node,
         correctionNode: node.kind === 'correction' ? null : nearestCorrectionAfter(tree.nodes, node),
         resolvedNode: nearestAcceptedAfter(tree.nodes, node, null),
-        evidence: `Agent action touched ${kinds.join(', ')}: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
+        evidence: `Agent action touched ${kinds.join(', ')} [signals: ${signals.join('; ')}]: ${targets.map((t) => `"${truncate(String(t), 80)}"`).join(', ')}`,
         summary: `An agent action touched auth, secrets, or access control near "${truncate(node.title, 90)}".`,
       });
+      securityNodeIds.add(node.id);
     } else if (node.text.length <= 1200 && SECURITY_INTENT_RE.test(node.text)) {
       addFailure({
         type: 'security_or_privacy_risk',
@@ -335,6 +406,30 @@ export function analyzeTree(tree) {
         evidence: `User stated a security-sensitive intent: "${quote(node.text)}"`,
         summary: `A security-sensitive intent was stated near "${truncate(node.title, 90)}".`,
       });
+      securityNodeIds.add(node.id);
+    }
+
+    // P6: human-correction security-recall backstop. A human turn with a strong security
+    // correction ("don't leak that", "rotate that key", "revert the auth change") whose
+    // corrected (prior) node carried NO security label catches a real security event whose
+    // action phrasing missed the keyword list. Strictly `inferred` and human-grounded -- it
+    // never fabricates a strong/verified label.
+    if (hasSecurityCorrection(node.text)) {
+      const prior = nearestFailureTarget(node, tree.nodes);
+      const anchor = prior ? prior.target : null;
+      if (anchor && !securityNodeIds.has(anchor.id) && anchor.id !== node.id) {
+        addFailure({
+          type: 'security_or_privacy_risk',
+          confidence: 0.62,
+          tier: 'inferred',
+          failureNode: anchor,
+          correctionNode: node,
+          resolvedNode: nearestAcceptedAfter(tree.nodes, anchor, node),
+          evidence: `Human flagged a security concern about a prior action with no security label [signal: human security correction]: "${quote(node.text)}"`,
+          summary: `A human security correction was raised near "${truncate(anchor.title, 90)}" with no matching action-level signal.`,
+        });
+        securityNodeIds.add(anchor.id);
+      }
     }
 
     if (node.status === 'abandoned') {
@@ -681,10 +776,18 @@ function inferSignals(node) {
   if (!matched.size && node.kind === 'correction') consider('misunderstood_goal', 0.62);
 
   if (!matched.size) return [];
+  // P3: return all matching process kinds in priority order (capped) instead of
+  // first-match-wins, so a node that is e.g. both scope_drift and ignored_constraint
+  // surfaces both. misunderstood_goal is a fallback-only label and never co-emits.
+  const out = [];
   for (const type of SIGNAL_PRIORITY) {
-    if (matched.has(type)) return [{ type, confidence: matched.get(type) }];
+    if (type === 'misunderstood_goal') continue;
+    if (matched.has(type)) out.push({ type, confidence: matched.get(type) });
   }
-  return [];
+  if (!out.length && matched.has('misunderstood_goal')) {
+    return [{ type: 'misunderstood_goal', confidence: matched.get('misunderstood_goal') }];
+  }
+  return out.slice(0, PROCESS_LABEL_CAP);
 }
 
 function tsOf(node) {
@@ -692,11 +795,29 @@ function tsOf(node) {
   return Number.isFinite(t) ? t : null;
 }
 
+// Ingestion ordinal: node ids are assigned in stream order as `node_NNN` (src/tree.js),
+// so the numeric suffix is a stable parse-time ordinal. This is the causality tiebreak
+// used when timestamps are missing, instead of optimistically returning true (STRUCT-1).
+function ordinalOf(node) {
+  if (!node) return null;
+  if (Number.isFinite(node._ord)) return node._ord;
+  const m = /(\d+)\s*$/.exec(String(node.id || ''));
+  return m ? Number(m[1]) : null;
+}
+
+// P2: when timestamps are present, enforce ts ordering. When either timestamp is
+// missing, fall back to ingestion-ordinal ordering rather than returning true, so
+// timestamp-less adapters still get a real causal ordering and a corrector can never
+// be linked to a failure it preceded in the stream.
 function afterFailure(candidate, failureNode) {
   const ct = tsOf(candidate);
   const ft = tsOf(failureNode);
-  if (ct === null || ft === null) return true;
-  return ct >= ft;
+  if (ct !== null && ft !== null) return ct >= ft;
+  const co = ordinalOf(candidate);
+  const fo = ordinalOf(failureNode);
+  if (co !== null && fo !== null) return co >= fo;
+  // No timestamp and no ordinal on either side: cannot establish ordering -> fail closed.
+  return false;
 }
 
 function actionFiles(node) {
@@ -712,8 +833,17 @@ function sharedFiles(a, b) {
 
 function tokenSet(node) {
   const out = new Set();
-  for (const raw of String(node.text || '').toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || []) {
-    if (!STOPWORDS.has(raw)) out.add(raw);
+  const harvest = (s) => {
+    for (const raw of String(s || '').toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || []) {
+      if (!STOPWORDS.has(raw)) out.add(raw);
+    }
+  };
+  harvest(node.text);
+  // Include path tokens from this node's action files so a correction that names the
+  // touched surface ("the auth flow") ties back to an edit of `src/auth/session.ts`.
+  // This strengthens semantic linkage (STRUCT-3) without temporal guessing.
+  for (const a of node.actions || []) {
+    if (a.file) harvest(String(a.file).replace(/[\\/.+_-]+/g, ' '));
   }
   return out;
 }
@@ -727,8 +857,25 @@ function tokenOverlap(a, b) {
   return hits;
 }
 
+// Distinctive surface tokens: a single shared one between a security-file edit and a
+// correction is a strong semantic tie (e.g. an `auth/session.ts` edit + "fix the auth flow"),
+// where generic token overlap >= 3 would miss the link.
+const SURFACE_TOKENS = new Set([
+  'auth', 'session', 'login', 'signin', 'signup', 'oauth', 'jwt', 'sso', 'saml',
+  'secret', 'secrets', 'credential', 'credentials', 'password', 'token', 'apikey',
+  'rbac', 'permission', 'permissions', 'middleware', 'crypto', 'encrypt', 'decrypt',
+]);
+
+function sharedSurfaceToken(a, b) {
+  const ta = tokenSet(a);
+  const tb = tokenSet(b);
+  for (const t of ta) if (SURFACE_TOKENS.has(t) && tb.has(t)) return true;
+  return false;
+}
+
 function sharesEvidence(failureNode, candidate) {
   if (sharedFiles(failureNode, candidate)) return true;
+  if (sharedSurfaceToken(failureNode, candidate)) return true;
   return tokenOverlap(failureNode, candidate) >= 3;
 }
 
@@ -737,7 +884,7 @@ function nearestFailureTarget(node, nodes) {
     (n) => n.status !== 'abandoned' && n.id !== node.id && afterFailure(node, n)
   );
   if (!earlier.length) return null;
-  earlier.sort((a, b) => (tsOf(b) ?? 0) - (tsOf(a) ?? 0));
+  earlier.sort((a, b) => orderAfter(b, a));
   const semantic = earlier.find((n) => sharesEvidence(n, node));
   if (semantic) return { target: semantic, linkage: 'semantic' };
   if (node.parent && node.parent.status !== 'abandoned' && node.parent.id !== node.id && afterFailure(node, node.parent)) {
@@ -746,25 +893,63 @@ function nearestFailureTarget(node, nodes) {
   return { target: earlier[0], linkage: 'positional' };
 }
 
-function nearestAcceptedAfter(nodes, failureNode, correctionNode) {
-  const anchor = correctionNode || failureNode;
-  const later = nodes
+// Acceptance/confirmation cue: an explicit "looks good / that works / fixed" turn is a
+// semantic resolution even when it shares no tokens or files with the failure.
+const ACCEPTANCE_RE =
+  /\b(?:that(?:'?s| is| works| fixed)|works now|looks? good|lgtm|perfect|great|nice|fixed|resolved|that did it|that worked|much better|exactly|correct now)\b/i;
+
+function laterCandidates(nodes, failureNode, anchor, extraExcludeId) {
+  return nodes
     .filter((n) => n.status !== 'abandoned' && n.id !== failureNode.id && afterFailure(n, anchor))
-    .filter((n) => !correctionNode || n.id !== correctionNode.id);
-  if (!later.length) return null;
-  later.sort((a, b) => (tsOf(a) ?? Infinity) - (tsOf(b) ?? Infinity));
-  const semantic = later.find((n) => sharesEvidence(failureNode, n));
-  return semantic || later[0];
+    .filter((n) => !extraExcludeId || n.id !== extraExcludeId)
+    .sort(orderAfter);
 }
 
-function nearestCorrectionAfter(nodes, failureNode) {
-  const later = nodes.filter(
-    (n) => n.status !== 'abandoned' && n.kind === 'correction' && n.id !== failureNode.id && afterFailure(n, failureNode)
-  );
+function orderAfter(a, b) {
+  const ta = tsOf(a);
+  const tb = tsOf(b);
+  if (ta !== null && tb !== null) return ta - tb;
+  return (ordinalOf(a) ?? Infinity) - (ordinalOf(b) ?? Infinity);
+}
+
+// P2: only return a resolution when it actually ties back to the failure -- it shares
+// evidence (file or token overlap) OR it is an explicit acceptance/confirmation turn.
+// Otherwise return null. An honest null beats the temporally-nearest node, which is
+// frequently just "the next thing that happened" and poisons eval candidates.
+function nearestAcceptedAfter(nodes, failureNode, correctionNode) {
+  const anchor = correctionNode || failureNode;
+  const later = laterCandidates(nodes, failureNode, anchor, correctionNode?.id);
   if (!later.length) return null;
-  later.sort((a, b) => (tsOf(a) ?? Infinity) - (tsOf(b) ?? Infinity));
   const semantic = later.find((n) => sharesEvidence(failureNode, n));
-  return semantic || later[0];
+  if (semantic) return semantic;
+  const accepted = later.find((n) => ACCEPTANCE_RE.test(String(n.text || '')));
+  return accepted || null;
+}
+
+// P2: only treat a later correction as the corrector when it semantically ties back to
+// the failure (shared evidence). A correction that merely happened later, about something
+// else, is not the corrector -- return null and let the signal stand uncorrected.
+function nearestCorrectionAfter(nodes, failureNode) {
+  const later = nodes
+    .filter((n) => n.status !== 'abandoned' && n.kind === 'correction' && n.id !== failureNode.id && afterFailure(n, failureNode))
+    .sort(orderAfter);
+  if (!later.length) return null;
+  return later.find((n) => sharesEvidence(failureNode, n)) || null;
+}
+
+// Co-signal lookup for P1: a later human turn that both carries security-correction
+// phrasing and ties back to this node by shared evidence corroborates the signal.
+function nearestSecurityCorrection(nodes, failureNode) {
+  const later = nodes
+    .filter(
+      (n) =>
+        n.status !== 'abandoned' &&
+        n.id !== failureNode.id &&
+        afterFailure(n, failureNode) &&
+        hasSecurityCorrection(n.text)
+    )
+    .sort(orderAfter);
+  return later.find((n) => sharesEvidence(failureNode, n)) || null;
 }
 
 function tierRank(tier) {

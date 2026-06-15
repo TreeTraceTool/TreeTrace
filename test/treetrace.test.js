@@ -1360,3 +1360,266 @@ test('cli: --stdin --from claude is rejected', () => {
   assert.throws(() => parseArgs(['--stdin', '--from', 'claude']), /cannot be combined with --from claude/);
 });
 
+
+// ---------------------------------------------------------------------------
+// Labeling-accuracy fixes (proposal P1-P7) + negative-corpus release gate.
+// ---------------------------------------------------------------------------
+
+test('P7: short escaped-JSON secret values fail closed (redaction gate)', () => {
+  // Escape-inflated character counts must never let a short escaped value slip the floor.
+  const cases = [
+    ['short escaped newline', '{"api_key":"a\\nz"}'],
+    ['tiny escaped value', '{"api_key":"x\\ny"}'],
+    ['escaped quote', '{"token":"a\\"b"}'],
+    ['escaped backslash', '{"secret":"a\\\\b"}'],
+    ['spec literal-\\n form', '{"api_key":"line1\\nline2line2line2"}'],
+  ];
+  for (const [label, sample] of cases) {
+    const hits = scanText(sample).map((f) => f.ruleId);
+    assert.ok(hits.includes('secret-assignment'), `${label}: escaped secret must be caught (got ${JSON.stringify(hits)})`);
+  }
+  // Must not over-fire on benign short non-escaped values or placeholders.
+  assert.equal(scanText('{"api_key":"ab"}').length, 0, 'benign short value below floor must stay clean');
+  assert.equal(scanText('{"api_key":"${SECRET}"}').filter((f) => f.ruleId === 'secret-assignment').length, 0, 'placeholder must stay clean');
+});
+
+test('P7: a short escaped-JSON secret leaves no raw value in any artifact end to end', async () => {
+  const rawValue = 'a\\nz';
+  const secretLine = `config is {"api_key":"${rawValue}"}`;
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-p7-'));
+  const file = join(dir, 'escconv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: [secretLine] }, create_time: 1.0 }, parent: 'r', children: ['a'] },
+      a: { message: { author: { role: 'assistant' }, content: { parts: ['ok'] }, create_time: 2.0 }, parent: 'u', children: [] },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--report', '--analysis', '--redact-auto', '--quiet']);
+    const artifacts = [
+      'PROMPT_TREE.md', 'TREETRACE_REPORT.md', '.treetrace/tree.json',
+      '.treetrace/failures.json', '.treetrace/lessons.md', '.treetrace/evals.jsonl', '.treetrace/agent-memory.md',
+    ].filter((f) => existsSync(join(dir, f))).map((f) => readFileSync(join(dir, f), 'utf8')).join('\n');
+    assert.ok(!artifacts.includes(rawValue), 'raw short escaped-JSON secret leaked into an artifact');
+    assert.ok(artifacts.includes('[REDACTED:secret-assignment]'), 'expected a secret-assignment redaction marker');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('P1: a single strong security signal stays verified at exactly 0.95', () => {
+  const node = {
+    id: 'node_001', text: 'harden auth', title: 'harden auth', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/auth/session.ts', command: null, model: 'm' }],
+  };
+  const sec = analyzeTree({ nodes: [node] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec && sec.tier === 'verified' && sec.confidence === 0.95, 'strong anchor must remain verified/0.95');
+});
+
+test('P1: confidence is derived from corroboration and the contributing signals are in the evidence', () => {
+  // Many independent signals (credential content + credential file + risky cmd + surface) vs one weak keyword.
+  const strong = {
+    id: 'node_001', text: 'deploy', title: 'deploy', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Bash', file: 'src/auth/session.ts', command: '. /srv/app/.env; rm -rf /tmp/x; chmod 777 /etc', input: '. /srv/app/.env; rm -rf /tmp/x; chmod 777 /etc', model: 'm' }],
+  };
+  const strongSec = analyzeTree({ nodes: [strong] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.equal(strongSec.tier, 'verified');
+  assert.ok(/signals:/.test(strongSec.evidence), 'evidence must list the contributing signals (auditable)');
+  assert.ok(/strong credential content/.test(strongSec.evidence), 'evidence must name the strong credential signal');
+
+  const weak = {
+    id: 'node_001', text: 'edit detector', title: 'x', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/analyze.js', input: 'const ACCESS = /rbac/i;', command: null, model: 'm' }],
+  };
+  const weakSec = analyzeTree({ nodes: [weak] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  // Derived: the lone-weak-keyword score must be strictly below the strong score.
+  assert.ok(weakSec.confidence < strongSec.confidence, 'lone weak keyword must score below a multi-signal strong event');
+});
+
+test('P2: afterFailure does not link a corrector that precedes its failure when timestamps are missing', () => {
+  // Ingestion ordinal (node id suffix) is the tiebreak: node_001 precedes node_002 in the stream.
+  const failure = {
+    id: 'node_002', text: 'the deck still does not render here', title: 'still broken', kind: 'direction', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'site/deck/index.html', command: null, input: null, model: 'm' }],
+  };
+  const earlier = {
+    id: 'node_001', text: 'no that is wrong redo the deck here please', title: 'redo', kind: 'correction', status: 'accepted', parent: failure,
+    actions: [{ tool: 'Edit', file: 'site/deck/index.html', command: null, input: null, model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [failure, earlier] });
+  for (const f of analysis.failures) {
+    if (!f.correctedByNodeId) continue;
+    const fo = Number(/(\d+)$/.exec(f.firstSeenNodeId)[1]);
+    const co = Number(/(\d+)$/.exec(f.correctedByNodeId)[1]);
+    assert.ok(co >= fo, `failure ${f.id} corrected by an earlier-ordinal node`);
+  }
+});
+
+test('P2: resolvedBy is null when no resolution ties back to the failure, instead of the temporally-nearest node', () => {
+  const failure = {
+    id: 'node_001', text: 'do not hardcode the database url into the config file please', title: 'no hardcoding', kind: 'correction', status: 'accepted', parent: null,
+    ts: '2026-06-12T10:00:00.000Z', actions: [{ tool: 'Edit', file: 'config/db.ts', command: null, input: null, model: 'm' }],
+  };
+  const unrelatedLater = {
+    id: 'node_002', text: 'now lets switch topics entirely and write the marketing landing copy', title: 'marketing', kind: 'direction', status: 'accepted', parent: failure,
+    ts: '2026-06-12T11:00:00.000Z', actions: [{ tool: 'Edit', file: 'site/index.html', command: null, input: null, model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [failure, unrelatedLater] });
+  for (const chain of analysis.correctionChains) {
+    // The unrelated later node shares neither file nor surface token nor acceptance phrasing.
+    assert.notEqual(chain.resolvedNodeId, 'node_002', 'must not resolve to an unrelated temporally-nearest node');
+  }
+});
+
+test('P2: an explicit acceptance turn IS accepted as a resolution even with no shared evidence', () => {
+  // The failure/correction share a file (so they link), but the acceptance turn shares
+  // NOTHING structural with the failure -- only its acceptance phrasing can recover it as
+  // the resolution. This proves the acceptance path, not temporal-nearest guessing.
+  const failure = {
+    id: 'node_001', text: 'the checkout total is off by a cent on tax rounding', title: 'rounding bug', kind: 'direction', status: 'accepted', parent: null,
+    ts: '2026-06-12T10:00:00.000Z', actions: [{ tool: 'Edit', file: 'src/checkout/total.ts', command: null, input: null, model: 'm' }],
+  };
+  const correction = {
+    id: 'node_002', text: 'no the checkout total rounding is still wrong, redo the total calc', title: 'still wrong', kind: 'correction', status: 'accepted', parent: failure,
+    ts: '2026-06-12T10:30:00.000Z', actions: [{ tool: 'Edit', file: 'src/checkout/total.ts', command: null, input: null, model: 'm' }],
+  };
+  const accepted = {
+    id: 'node_003', text: 'perfect, that works now', title: 'works', kind: 'direction', status: 'accepted', parent: correction,
+    ts: '2026-06-12T11:00:00.000Z', actions: [{ tool: 'Edit', file: 'src/unrelated/widget.ts', command: null, input: null, model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [failure, correction, accepted] });
+  // failure + correction share total.ts, so a chain forms; the acceptance turn (node_003)
+  // shares no file/surface with the failure, so only its acceptance phrasing can recover it
+  // as the resolution -- proving the acceptance path, not temporal-nearest guessing.
+  assert.ok(
+    analysis.correctionChains.some((c) => c.resolvedNodeId === 'node_003'),
+    'the explicit acceptance turn should be recorded as the resolution'
+  );
+});
+
+test('P3: a node that leaks a secret and runs a risky command surfaces both kinds', () => {
+  const node = {
+    id: 'node_001', text: 'deploy', title: 'deploy', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Bash', file: null, command: '. /srv/app/.env; rm -rf /var/data', input: '. /srv/app/.env; rm -rf /var/data', model: 'm' }],
+  };
+  const sec = analyzeTree({ nodes: [node] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(/credential/.test(sec.evidence) && /risky-command/.test(sec.evidence), `both kinds must appear: ${sec.evidence}`);
+});
+
+test('P3: inferSignals can return multiple process kinds for a multi-class correction', () => {
+  const root = { id: 'node_001', text: 'build a dashboard', title: 'x', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const corr = {
+    id: 'node_002', kind: 'correction', status: 'accepted', parent: root, actions: [],
+    text: 'no, you ignored what i asked for and this is overbuilt, scrap the web app, keep it minimal',
+    title: 'multi-class correction',
+  };
+  const analysis = analyzeTree({ nodes: [root, corr] });
+  const types = new Set(analysis.failures.map((f) => f.type));
+  assert.ok(types.size >= 2, `expected multiple process labels, got ${[...types].join(', ')}`);
+});
+
+test('P4: a bare rbac keyword with no co-signal stays inferred, never high/verified', () => {
+  const node = {
+    id: 'node_001', text: 'edit detector', title: 'x', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/analyze.js', input: 'const ACCESS_CONTROL_WEAK_RE = /rbac|access-control/i;', command: null, model: 'm' }],
+  };
+  const sec = analyzeTree({ nodes: [node] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec && sec.tier === 'inferred', `lone weak keyword must be inferred (got ${sec && sec.tier})`);
+});
+
+test('P4: a bare rbac keyword WITH a security-surface co-signal earns high tier', () => {
+  const node = {
+    id: 'node_001', text: 'wire up access control', title: 'x', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/rbac/policy.ts', input: 'enable rbac for the route', command: null, model: 'm' }],
+  };
+  const sec = analyzeTree({ nodes: [node] }).failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec && (sec.tier === 'high' || sec.tier === 'verified'), `keyword + surface co-signal should tier up (got ${sec && sec.tier})`);
+});
+
+test('P6: a human security correction backstops a prior action that carried no security label', () => {
+  const prior = {
+    id: 'node_001', text: 'put the deploy config value directly into the deploy script', title: 'deploy config', kind: 'direction', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'deploy.sh', command: null, input: null, model: 'm' }],
+  };
+  const correction = {
+    id: 'node_002', text: 'that is a secret, rotate that key and do not commit it to the deploy script', title: 'rotate', kind: 'correction', status: 'accepted', parent: prior,
+    actions: [{ tool: 'Edit', file: 'deploy.sh', command: null, input: null, model: 'm' }],
+  };
+  const analysis = analyzeTree({ nodes: [prior, correction] });
+  const sec = analysis.failures.find((f) => f.type === 'security_or_privacy_risk');
+  assert.ok(sec, 'human security correction should backstop a missed security event');
+  assert.equal(sec.tier, 'inferred', 'the backstop must be inferred only, never strong/verified');
+  assert.ok(sec.confidence <= 0.7, 'the backstop confidence must stay low');
+});
+
+test('P6: the backstop never fabricates a strong/verified security label from prose alone', () => {
+  const root = { id: 'node_001', text: 'build the cli', title: 'x', kind: 'root', status: 'accepted', parent: null, actions: [] };
+  const correction = {
+    id: 'node_002', text: 'never leak the api secret token again', title: 'no leaks', kind: 'correction', status: 'accepted', parent: root, actions: [],
+  };
+  const analysis = analyzeTree({ nodes: [root, correction] });
+  const strongSec = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk' && (f.tier === 'verified' || f.tier === 'high'));
+  assert.equal(strongSec.length, 0, 'a human-correction backstop must never mint strong/verified labels');
+});
+
+// RELEASE GATE: the negative corpus must produce ZERO security/failure/hallucination false positives.
+test('NEGATIVE CORPUS (release gate): benign inputs produce zero security/failure false positives', () => {
+  const dir = tempProject();
+  // Benign prompts that historically tripped keyword/substring/path false positives.
+  const benign = [
+    'capture a screenshot with chrome --headless --force-device-scale-factor=1 --screenshot=out.png',
+    'edit src/ui/semantic-tokens.ts to adjust the design token palette',
+    'update theme/design-tokens.json and src/lexer/tokenizer.ts for the new theme',
+    'the access-control documentation mentions rbac as a concept; just explaining it in the readme',
+    'we use JSON.parse and params.arguments and test.skip in the code, no changes needed',
+    'add a token field to the response schema and document the bearer header format in the api guide',
+    'rename the file from auth-helpers.md to authentication-notes.md in the docs folder',
+    'the password strength meter component needs a tooltip, purely a UI label',
+  ];
+  try {
+    // The benign corpus references real files; create them so any hallucination flag is a
+    // genuine false positive rather than a correct missing-file detection.
+    mkdirSync(join(dir, 'src', 'ui'), { recursive: true });
+    mkdirSync(join(dir, 'src', 'lexer'), { recursive: true });
+    mkdirSync(join(dir, 'theme'), { recursive: true });
+    mkdirSync(join(dir, 'docs'), { recursive: true });
+    writeFileSync(join(dir, 'out.png'), 'x');
+    writeFileSync(join(dir, 'src', 'ui', 'semantic-tokens.ts'), 'export const t = 1;\n');
+    writeFileSync(join(dir, 'src', 'lexer', 'tokenizer.ts'), 'export const t = 1;\n');
+    writeFileSync(join(dir, 'theme', 'design-tokens.json'), '{}');
+    writeFileSync(join(dir, 'auth-helpers.md'), '# notes\n');
+    writeFileSync(join(dir, 'authentication-notes.md'), '# notes\n');
+    writeFileSync(join(dir, 'readme'), 'rbac is a concept\n');
+
+    const nodes = benign.map((text, i) => ({
+      id: `node_${String(i + 1).padStart(3, '0')}`,
+      text, title: text.slice(0, 40), kind: i === 0 ? 'root' : 'direction',
+      status: 'accepted', parent: null,
+      ts: `2026-06-12T${String(10 + i).padStart(2, '0')}:00:00.000Z`,
+      // Benign UI/doc file edits, plus the chrome flag command.
+      actions: i === 0
+        ? [{ tool: 'Bash', file: null, command: 'chrome --headless --force-device-scale-factor=1 --screenshot=out.png', model: 'm' }]
+        : i === 1 ? [{ tool: 'Edit', file: 'src/ui/semantic-tokens.ts', model: 'm' }]
+        : i === 2 ? [{ tool: 'Edit', file: 'theme/design-tokens.json', model: 'm' }]
+        : [],
+    }));
+    for (let k = 1; k < nodes.length; k++) nodes[k].parent = nodes[k - 1];
+
+    const analysis = analyzeTree({ nodes: nodes.map((n) => ({ ...n })) });
+    const secFps = analysis.failures.filter((f) => f.type === 'security_or_privacy_risk');
+    assert.equal(secFps.length, 0, `negative corpus minted security false positives: ${JSON.stringify(secFps.map((f) => f.evidence))}`);
+
+    const halluc = detectHallucinations({ nodes: nodes.map((n) => ({ ...n })) }, dir).hallucinations;
+    assert.equal(halluc.length, 0, `negative corpus minted hallucination false positives: ${JSON.stringify(halluc.map((h) => h.reference))}`);
+
+    // Redaction must not over-fire high/medium on benign prose.
+    for (const text of benign) {
+      const hi = scanText(text).filter((f) => f.severity === 'high' || f.severity === 'medium');
+      assert.equal(hi.length, 0, `redaction over-fired on benign text "${text}": ${JSON.stringify(hi.map((f) => f.ruleId))}`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
