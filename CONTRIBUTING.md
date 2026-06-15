@@ -12,7 +12,7 @@ Thanks for looking. TreeTrace is a small, local-first CLI with no runtime depend
 ## Getting set up
 
 ```bash
-git clone https://github.com/Tree-Trace/treetrace.git
+git clone https://github.com/TreeTraceTool/TreeTrace.git
 cd treetrace
 npm test
 ```

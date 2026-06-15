@@ -6,7 +6,7 @@ TreeTrace runs locally and never uploads your data, so most of its security surf
 
 Use GitHub's private vulnerability reporting for this repository:
 
-https://github.com/Tree-Trace/treetrace/security/advisories/new
+https://github.com/TreeTraceTool/TreeTrace/security/advisories/new
 
 That keeps the report private until a fix is out. Please include the version, your platform and Node version, and a minimal way to reproduce. If a secret would slip through the redaction gate, describe the token shape rather than pasting a real secret.
 

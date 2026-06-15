@@ -2,6 +2,12 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.5.1 - 2026-06-15
+
+### Fixed
+
+- Package metadata, README, and config links now point to github.com/TreeTraceTool/TreeTrace.
+
 ## 0.5.0 - 2026-06-13
 
 ### Added

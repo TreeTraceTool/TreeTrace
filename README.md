@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Tree-Trace/treetrace/main/.github/assets/logo-dark.svg">
-  <img alt="TreeTrace" src="https://raw.githubusercontent.com/Tree-Trace/treetrace/main/.github/assets/logo-light.svg" width="440">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/logo-dark.svg">
+  <img alt="TreeTrace" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/logo-light.svg" width="440">
 </picture>
 
 <h3>Git shows what changed. TreeTrace shows how you steered the agent.</h3>
@@ -11,7 +11,7 @@
 
 <p>
   <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=0CA08A&labelColor=0B1210"></a>
-  <a href="https://github.com/Tree-Trace/treetrace/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/Tree-Trace/treetrace/ci.yml?branch=main&style=flat-square&label=ci&color=0CA08A&labelColor=0B1210"></a>
+  <a href="https://github.com/TreeTraceTool/TreeTrace/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/TreeTraceTool/TreeTrace/ci.yml?branch=main&style=flat-square&label=ci&color=0CA08A&labelColor=0B1210"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache--2.0-0CA08A?style=flat-square&labelColor=0B1210"></a>
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A518-0CA08A?style=flat-square&labelColor=0B1210">
   <img alt="dependencies" src="https://img.shields.io/badge/dependencies-0-0CA08A?style=flat-square&labelColor=0B1210">
@@ -29,7 +29,7 @@
 </p>
 
 <picture>
-  <img alt="TreeTrace turning a session into a prompt tree, lessons, and redacted output" src="https://raw.githubusercontent.com/Tree-Trace/treetrace/main/.github/assets/demo.gif" width="760">
+  <img alt="TreeTrace turning a session into a prompt tree, lessons, and redacted output" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/demo.gif" width="760">
 </picture>
 
 </div>
