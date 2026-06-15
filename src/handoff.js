@@ -13,10 +13,7 @@ export function renderHandoff(tree, opts = {}) {
   const lastAccepted = latestByTime(accepted);
 
   lines.push(`# Handoff brief: ${escapeMdTags(projectName)}`);
-  lines.push('');
-  lines.push(
-    `You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (${stats.promptCount} prompts, ${stats.sessionCount} sessions). Read it fully before acting.`
-  );
+  lines.push(`${stats.promptCount} ${plural(stats.promptCount, 'prompt')} · ${stats.sessionCount} ${plural(stats.sessionCount, 'session')}`);
   lines.push('');
 
   if (root) {
@@ -30,9 +27,9 @@ export function renderHandoff(tree, opts = {}) {
   lines.push('');
   if (lastCheckpoint) {
     lines.push(`Last checkpoint: ${escapeMdTags(lastCheckpoint.text.trim())}`);
+    if (lastAccepted && lastAccepted !== lastCheckpoint) lines.push('');
   }
   if (lastAccepted && lastAccepted !== lastCheckpoint) {
-    lines.push('');
     lines.push(`Most recent accepted direction: ${escapeMdTags(lastAccepted.text.trim())}`);
   }
   lines.push('');
@@ -41,7 +38,7 @@ export function renderHandoff(tree, opts = {}) {
     (n) => (n.kind === 'direction' || n.kind === 'scope-change') && isStrategicDirection(n)
   );
   if (decisions.length) {
-    lines.push('## Accepted decisions (in order)');
+    lines.push('## Accepted decisions');
     lines.push('');
     decisions.forEach((n, i) => lines.push(`${i + 1}. ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 360))}`));
     lines.push('');
@@ -49,9 +46,7 @@ export function renderHandoff(tree, opts = {}) {
 
   const corrections = accepted.filter((n) => n.kind === 'correction');
   if (corrections.length) {
-    lines.push('## Constraints learned the hard way');
-    lines.push('');
-    lines.push('These corrections were issued during the build. Do not repeat the mistakes they fixed:');
+    lines.push('## Constraints');
     lines.push('');
     corrections.forEach((n) => lines.push(`- ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
     lines.push('');
@@ -61,29 +56,30 @@ export function renderHandoff(tree, opts = {}) {
     (n) => n.status === 'abandoned' && (!n.parent || n.parent.status !== 'abandoned')
   );
   if (abandoned.length) {
-    lines.push('## Known dead ends');
-    lines.push('');
-    lines.push('These approaches were tried and abandoned. Avoid unless told otherwise:');
+    lines.push('## Dead ends');
     lines.push('');
     abandoned.forEach((n) => lines.push(`- ${escapeMdTags(truncate(n.text.replace(/\s+/g, ' '), 300))}`));
     lines.push('');
   }
 
   if (analysis.lessons.length) {
-    lines.push('## Agent memory lessons');
+    lines.push('## Lessons');
     lines.push('');
     analysis.lessons.slice(0, 6).forEach((lesson) => {
-      lines.push(`- ${escapeMdTags(truncate(lesson.text.replace(/\s+/g, ' '), 320))}`);
+      lines.push(`- ${escapeMdTags(lesson.title)}: ${escapeMdTags(truncate(compactLessonText(lesson.text), 320))}`);
     });
     lines.push('');
   }
 
-  lines.push('## First task');
-  lines.push('');
-  lines.push(
-    'Confirm you understand the goal, the accepted decisions, and the constraints above, then ask the user what to tackle next (or continue the most recent accepted direction if instructed to proceed autonomously).'
-  );
-  lines.push('');
-
   return lines.join('\n');
+}
+
+function plural(count, singular) {
+  return count === 1 ? singular : `${singular}s`;
+}
+
+function compactLessonText(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  const evidenceAt = normalized.indexOf('Specifically:');
+  return evidenceAt === -1 ? normalized : normalized.slice(evidenceAt + 'Specifically:'.length).trim();
 }

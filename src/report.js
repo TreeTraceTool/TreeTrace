@@ -1,6 +1,4 @@
-import { analyzeTree, renderLessonsMarkdown, renderMemoryMarkdown, latestByTime } from './analyze.js';
-import { renderHandoff } from './handoff.js';
-import { renderMarkdown } from './render-md.js';
+import { analyzeTree, latestByTime } from './analyze.js';
 import { plural, truncate, escapeMd } from './util.js';
 import { REPO_URL } from './config.js';
 
@@ -14,39 +12,29 @@ export function renderReportMarkdown(tree, opts = {}) {
   lines.push('');
   lines.push(`Generated: ${generatedAt}`);
   lines.push('');
-  lines.push(
-    'This is the human-readable rollup. Keep the split `.treetrace/` artifacts for agents, CI, eval harnesses, and other tools.'
-  );
-  lines.push('');
-
-  lines.push('## Read order');
-  lines.push('');
-  lines.push('1. `TREETRACE_REPORT.md` - human rollup and terminal-friendly report.');
-  lines.push('2. `PROMPT_TREE.md` - detailed prompt lineage and reusable prompt pack.');
-  lines.push('3. `.treetrace/lessons.md` - reusable correction memory.');
-  lines.push('4. `.treetrace/agent-memory.md` - compact memory for the next coding agent.');
-  lines.push('5. `.treetrace/tree.json`, `failures.json`, and `evals.jsonl` - machine-readable data.');
-  lines.push('');
 
   lines.push('## Session summary');
   lines.push('');
   const { promptCount, rawPromptCount } = tree.stats;
   const foldedTurns = (rawPromptCount || promptCount) - promptCount;
-  lines.push(
-    foldedTurns > 0
-      ? `- Prompts: ${promptCount} (merged from ${rawPromptCount} raw turns; ${foldedTurns} continuation or duplicate turn${foldedTurns === 1 ? '' : 's'} folded in)`
-      : `- Prompts: ${promptCount}`
-  );
-  lines.push(`- Sessions: ${tree.stats.sessionCount}`);
-  if (tree.stats.days) lines.push(`- Active span: ${plural(tree.stats.days, 'day')}`);
-  if (tree.stats.corrections) lines.push(`- Corrections: ${tree.stats.corrections}`);
-  if (tree.stats.abandonedBranches) lines.push(`- Abandoned branches: ${tree.stats.abandonedBranches}`);
-  if (tree.stats.toolUses) lines.push(`- Tool calls: ${tree.stats.toolUses.toLocaleString()}`);
-  if (tree.stats.filesTouched) lines.push(`- Files touched: ${tree.stats.filesTouched}`);
   const tc = analysis.summary.tierCounts || { verified: 0, high: 0, confirmed: 0, inferred: 0 };
+  const promptPart =
+    foldedTurns > 0
+      ? `Prompts: ${promptCount} (from ${rawPromptCount} raw turns)`
+      : `Prompts: ${promptCount}`;
+  const sessionParts = [
+    promptPart,
+    `Sessions: ${tree.stats.sessionCount}`,
+    tree.stats.days ? `Span: ${plural(tree.stats.days, 'day')}` : null,
+    tree.stats.toolUses ? `Tool calls: ${tree.stats.toolUses.toLocaleString()}` : null,
+    tree.stats.filesTouched ? `Files touched: ${tree.stats.filesTouched}` : null,
+  ].filter(Boolean);
+  lines.push(`- ${sessionParts.join('  ')}`);
   lines.push(
     `- Failure signals: ${analysis.summary.totalFailureSignals} (verified ${tc.verified}, high ${tc.high || 0}, confirmed ${tc.confirmed}, inferred ${tc.inferred})`
   );
+  if (tree.stats.corrections) lines.push(`- Corrections: ${tree.stats.corrections}`);
+  if (tree.stats.abandonedBranches) lines.push(`- Abandoned branches: ${tree.stats.abandonedBranches}`);
   if (analysis.summary.models && analysis.summary.models.length) {
     lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
   }
@@ -59,16 +47,16 @@ export function renderReportMarkdown(tree, opts = {}) {
 
   lines.push('## Output map');
   lines.push('');
-  lines.push('| File | Use it for |');
-  lines.push('|------|------------|');
-  lines.push('| `TREETRACE_REPORT.md` | Human review, terminal output, quick context. |');
-  lines.push('| `PROMPT_TREE.md` | Full lineage narrative and replayable prompt pack. |');
-  lines.push('| `.treetrace/tree.json` | Canonical schema for tools and integrations. |');
-  lines.push('| `.treetrace/failures.json` | Failure labels, evidence, correction chains. |');
-  lines.push('| `.treetrace/hallucinations.json` | Referenced files, paths, imports, or packages that do not exist in the working tree. |');
-  lines.push('| `.treetrace/lessons.md` | Human-readable lessons. |');
-  lines.push('| `.treetrace/evals.jsonl` | Eval/regression cases; not meant to be pretty. |');
-  lines.push('| `.treetrace/agent-memory.md` | Short memory pack for Codex, Claude Code, Cursor, or another agent. |');
+  lines.push('| File | Purpose |');
+  lines.push('|------|---------|');
+  lines.push('| `TREETRACE_REPORT.md` | this file |');
+  lines.push('| `PROMPT_TREE.md` | prompt lineage + replay pack |');
+  lines.push('| `.treetrace/tree.json` | canonical schema |');
+  lines.push('| `.treetrace/failures.json` | labels + correction chains |');
+  lines.push('| `.treetrace/hallucinations.json` | unresolved references |');
+  lines.push('| `.treetrace/lessons.md` | correction memory |');
+  lines.push('| `.treetrace/evals.jsonl` | regression eval cases |');
+  lines.push('| `.treetrace/agent-memory.md` | next-agent memory pack |');
   lines.push('');
 
   if (analysis.failures.length) {
@@ -80,7 +68,9 @@ export function renderReportMarkdown(tree, opts = {}) {
     lines.push('');
     for (const failure of analysis.failures.slice(0, 8)) {
       const meta = [failure.tier, confidencePct(failure.confidence), failure.model].filter(Boolean).join(', ');
-      lines.push(`- ${failure.id} (${failure.type}, ${meta}): ${escapeMd(failure.summary)}`);
+      const nodeId = failure.firstSeenNodeId ? ` [${failure.firstSeenNodeId}]` : '';
+      const evidence = failure.evidence ? ` Evidence: ${escapeMd(truncate(failure.evidence, 180))}` : '';
+      lines.push(`- ${failure.id}${nodeId} (${failure.type}, ${meta}): ${escapeMd(failure.summary)}${evidence}`);
     }
     if (analysis.failures.length > 8) {
       lines.push(`- ... ${analysis.failures.length - 8} more in .treetrace/failures.json`);
@@ -94,37 +84,19 @@ export function renderReportMarkdown(tree, opts = {}) {
     securityTrail.sort((a, b) => (rank[b.tier] || 0) - (rank[a.tier] || 0));
     lines.push('## Security audit trail');
     lines.push('');
-    lines.push('Every time an agent touched auth, secrets, or access control in this session:');
-    lines.push('');
     for (const f of securityTrail.slice(0, 12)) {
       const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
-      lines.push(`- (${tag}) ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
+      const nodeId = f.firstSeenNodeId ? ` [${f.firstSeenNodeId}]` : '';
+      lines.push(`- (${tag})${nodeId} ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
     }
     lines.push('');
   }
 
-  lines.push('## Handoff brief');
+  lines.push('## Artifacts');
   lines.push('');
-  lines.push(demoteHeadings(stripTitle(renderHandoff(tree, opts)), 2));
-  lines.push('');
-
-  lines.push('## Agent memory');
-  lines.push('');
-  lines.push(demoteHeadings(stripTitle(renderMemoryMarkdown(tree, opts)), 2));
-  lines.push('');
-
-  lines.push('## Lessons');
-  lines.push('');
-  lines.push(demoteHeadings(stripTitle(renderLessonsMarkdown(tree, opts)), 2));
-  lines.push('');
-
-  lines.push('## Prompt tree');
-  lines.push('');
-  lines.push(demoteHeadings(stripTitle(renderMarkdown(tree, { ...opts, titlesOnly: opts.titlesOnly })), 2));
-  lines.push('');
+  lines.push('See: `PROMPT_TREE.md` · `.treetrace/lessons.md` · `.treetrace/agent-memory.md` · handoff: run `treetrace --handoff`');
 
   lines.push('---');
-  lines.push('');
   lines.push(`Generated by [treetrace](${REPO_URL})${opts.version ? ` v${opts.version}` : ''}.`);
   lines.push('');
 
@@ -163,14 +135,6 @@ export function renderTerminalSummary(tree, opts = {}) {
   lines.push('');
 
   return lines.join('\n');
-}
-
-function stripTitle(markdown) {
-  return markdown.replace(/^# .*(?:\r?\n){1,2}/, '').trim();
-}
-
-function demoteHeadings(markdown, levels) {
-  return markdown.replace(/^(#{1,5}) /gm, (m, hashes) => `${hashes}${'#'.repeat(levels)} `);
 }
 
 function confidencePct(confidence) {

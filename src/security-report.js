@@ -104,107 +104,95 @@ export function renderSecurityReport(tree, projectDir, opts = {}) {
   lines.push('');
   lines.push(`Generated: ${generatedAt}`);
   lines.push('');
-  lines.push(
-    'This report leads with concrete failure classes from the session. It reuses the same signals as the full TreeTrace analysis; it does not run a separate scanner.'
-  );
-  lines.push('');
 
   const anySignal =
     f.surfaces.size || f.testSkips.length || f.riskyCommands.length || f.securitySignals.length || f.hallucinationResult.hallucinations.length;
   if (!anySignal) {
-    lines.push('No security-sensitive touches, test changes, risky commands, hallucinated references, or stated security intents were detected in this session.');
+    lines.push('None detected.');
     lines.push('');
     footer(lines, opts);
     return lines.join('\n');
   }
 
-  lines.push('## 1. Did the agent touch security-sensitive surfaces?');
+  lines.push('## Surfaces touched');
   lines.push('');
   if (f.surfaces.size) {
-    lines.push('Yes. Touched surfaces, with the files involved:');
-    lines.push('');
     for (const surface of SURFACE_ORDER) {
       const touches = f.surfaces.get(surface);
       if (!touches || !touches.length) continue;
       const files = [...new Set(touches.map((t) => t.file))].slice(0, 8);
-      lines.push(`- ${SURFACE_LABELS[surface]}: ${files.map((x) => `\`${escapeMd(truncate(x, 100))}\``).join(', ')}`);
+      const nodeIds = [...new Set(touches.map((t) => t.nodeId).filter(Boolean))].slice(0, 8);
+      const ids = nodeIds.length ? ` [${nodeIds.join(', ')}]` : '';
+      lines.push(`- ${SURFACE_LABELS[surface]}: ${files.map((x) => `\`${escapeMd(truncate(x, 100))}\``).join(', ')}${ids}`);
     }
   } else {
-    lines.push('No edits to auth, secrets, access control, crypto, dependency config, CI, deployment, or test files were observed in the captured actions.');
+    lines.push('None detected.');
   }
   if (f.securitySignals.length) {
     lines.push('');
-    lines.push('Security signals from the analysis pass (highest tier first):');
+    lines.push('## Security signals (highest tier first)');
     lines.push('');
     for (const s of f.securitySignals.slice(0, 12)) {
       const tag = s.tier === 'inferred' ? 'stated intent' : s.tier;
-      lines.push(`- (${tag}) ${escapeMd(truncate(s.evidence, EVIDENCE_CAP))}${s.model ? ` (${s.model})` : ''}`);
+      const nodeId = s.firstSeenNodeId ? ` [${s.firstSeenNodeId}]` : '';
+      lines.push(`- (${tag})${nodeId} ${escapeMd(truncate(s.evidence, EVIDENCE_CAP))}${s.model ? ` (${s.model})` : ''}`);
     }
   }
   lines.push('');
 
-  lines.push('## 2. Did the agent disable or skip tests?');
+  lines.push('## Test skips');
   lines.push('');
   if (f.testSkips.length) {
-    lines.push('Possible test removal or skipping was detected. Verify before trusting the suite:');
-    lines.push('');
     for (const t of f.testSkips.slice(0, 8)) lines.push(`- (${t.nodeId}) ${escapeMd(t.evidence)}`);
   } else {
-    lines.push('No evidence of disabled or skipped tests was found in prompts or captured actions.');
+    lines.push('None detected.');
   }
   lines.push('');
 
-  lines.push('## 3. Did the agent run risky shell commands?');
+  lines.push('## Risky shell commands');
   lines.push('');
   if (f.riskyCommands.length) {
-    lines.push('Yes. The following commands matched the risky-command patterns:');
-    lines.push('');
     for (const r of f.riskyCommands.slice(0, 8)) lines.push(`- (${r.nodeId}) \`${escapeMd(r.command)}\`${r.model ? ` (${r.model})` : ''}`);
   } else {
-    lines.push('No commands matched the risky-shell patterns (force pushes without review, recursive deletes, piped remote shells, world-writable chmod, destructive SQL).');
+    lines.push('None detected.');
   }
   lines.push('');
 
-  lines.push('## 4. Did the agent reference files, paths, imports, or packages that do not exist?');
+  lines.push('## Hallucinated references');
   lines.push('');
   if (!f.hallucinationResult.verifiedAgainstWorkingTree) {
-    lines.push('Not checked: no readable working tree was available for verification.');
+    lines.push('Working tree not available for verification.');
   } else if (f.hallucinationResult.hallucinations.length) {
-    lines.push('Yes. The following references could not be verified against the working tree or declared dependencies:');
-    lines.push('');
     for (const h of f.hallucinationResult.hallucinations.slice(0, 12)) {
-      lines.push(`- (${h.category}) ${escapeMd(truncate(h.evidence, EVIDENCE_CAP))}`);
+      const nodeId = h.nodeId ? ` [${h.nodeId}]` : '';
+      lines.push(`- (${h.category})${nodeId} ${escapeMd(truncate(h.evidence, EVIDENCE_CAP))}`);
     }
-    lines.push('');
-    lines.push('File and path existence and import and package declaration are checked deterministically. Per-symbol or per-API resolution inside a module is not attempted.');
   } else {
-    lines.push('No hallucinated files, paths, imports, or packages were detected. File and path existence and import and package declaration were checked against the working tree and manifests.');
+    lines.push('None detected.');
   }
   lines.push('');
 
-  lines.push('## 5. What human correction should become a future eval or memory item?');
+  lines.push('## Corrections to promote');
   lines.push('');
   const securityChains = f.analysis.correctionChains.filter((c) => c.failureType === 'security_or_privacy_risk');
   if (securityChains.length || f.corrections.length) {
-    lines.push('Turn these corrections into regression evals so the next agent inherits the constraint:');
-    lines.push('');
     const seen = new Set();
     for (const chain of securityChains.slice(0, 6)) {
       const corr = tree.nodes.find((n) => n.id === chain.correctionNodeId);
       if (corr && !seen.has(corr.id)) {
         seen.add(corr.id);
-        lines.push(`- (security correction) ${escapeMd(truncate(corr.text.replace(/\s+/g, ' '), 300))}`);
+        lines.push(`- (${corr.id}) ${escapeMd(truncate(corr.text.replace(/\s+/g, ' '), 300))}`);
       }
     }
     for (const corr of f.corrections.slice(-6)) {
       if (seen.has(corr.id)) continue;
       seen.add(corr.id);
-      lines.push(`- ${escapeMd(truncate(corr.text.replace(/\s+/g, ' '), 300))}`);
+      lines.push(`- (${corr.id}) ${escapeMd(truncate(corr.text.replace(/\s+/g, ' '), 300))}`);
     }
     lines.push('');
-    lines.push('Eval candidates from the analysis pass live in `.treetrace/evals.jsonl`; hallucination eval candidates live in `.treetrace/hallucinations.json`.');
+    lines.push('→ Eval candidates: .treetrace/evals.jsonl · .treetrace/hallucinations.json');
   } else {
-    lines.push('No human correction was linked to a security-sensitive action in this session. If a security touch above was intentional, capture the rationale so the next agent does not flag it again.');
+    lines.push('None. If a security touch above was intentional, log the rationale.');
   }
   lines.push('');
 

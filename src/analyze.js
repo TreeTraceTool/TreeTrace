@@ -541,22 +541,19 @@ export function renderFailuresJson(tree, opts = {}) {
 
 export function renderLessonsMarkdown(tree, opts = {}) {
   const analysis = analyzeTree(tree);
-  const lines = ['# TreeTrace Lessons', ''];
+  const lines = ['# Lessons', ''];
   if (!analysis.lessons.length) {
     lines.push('No high-confidence failure lessons were detected in this session.');
     lines.push('');
     return lines.join('\n');
   }
-  analysis.lessons.forEach((lesson, i) => {
-    lines.push(`## ${i + 1}. ${escapeMd(lesson.title)}`);
-    lines.push('');
-    lines.push(escapeMd(lesson.text));
-    lines.push('');
+  analysis.lessons.forEach((lesson) => {
     const ids = lesson.nodeIds;
     const shown = ids.slice(0, 8).join(', ');
-    lines.push(`Source nodes: ${shown}${ids.length > 8 ? ` (+${ids.length - 8} more)` : ''}`);
-    lines.push('');
+    const overflow = ids.length > 8 ? `, +${ids.length - 8} more` : '';
+    lines.push(`- **${escapeMd(lesson.title)}.** ${escapeMd(compactLessonText(lesson.text))} [${shown}${overflow}]`);
   });
+  lines.push('');
   return lines.join('\n');
 }
 
@@ -570,56 +567,49 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   const projectName = opts.projectName || 'this project';
   const nodes = tree.nodes || [];
   const live = (n) => n.status !== 'abandoned';
-  const lines = [`# TreeTrace Agent Memory`, '', `Project: ${escapeMd(projectName)}`, ''];
+  const lines = [`Project: ${escapeMd(projectName)}`, ''];
 
-  lines.push('## Constraints the user enforced');
-  lines.push('');
   const constraints = extractConstraints(nodes);
   if (constraints.length) {
+    lines.push('## Constraints');
     for (const label of constraints) lines.push(`- ${escapeMd(truncate(label, 140))}`);
-  } else {
-    lines.push('- No explicit constraints were flagged. Follow the accepted decisions in the handoff brief.');
+    lines.push('');
   }
-  lines.push('');
 
-  lines.push('## Lessons from this lineage');
-  lines.push('');
   if (analysis.lessons.length) {
-    for (const lesson of analysis.lessons.slice(0, 8)) lines.push(`- ${escapeMd(lesson.text)}`);
-  } else {
-    lines.push('- No high-confidence failure lessons were detected yet.');
+    lines.push('## Lessons');
+    for (const lesson of analysis.lessons.slice(0, 8)) {
+      const ids = lesson.nodeIds || [];
+      const shown = ids.slice(0, 8).join(', ');
+      const overflow = ids.length > 8 ? `, +${ids.length - 8} more` : '';
+      const nodeIds = shown ? ` [${shown}${overflow}]` : '';
+      lines.push(`- ${escapeMd(lesson.title)}: ${escapeMd(compactLessonText(lesson.text))}${nodeIds}`);
+    }
+    lines.push('');
   }
-  lines.push('');
 
-  lines.push('## Known bad paths');
-  lines.push('');
   const badPaths = analysis.failures.filter((f) => f.type === 'abandoned_path').slice(0, 6);
   if (badPaths.length) {
+    lines.push('## Bad paths');
     for (const failure of badPaths) lines.push(`- ${escapeMd(failure.summary)}`);
-  } else {
-    lines.push('- No abandoned paths were detected in this session.');
+    lines.push('');
   }
-  lines.push('');
 
-  lines.push('## Security-sensitive actions');
-  lines.push('');
   const security = analysis.failures
     .filter((f) => f.type === 'security_or_privacy_risk')
     .sort((a, b) => tierRank(b.tier) - tierRank(a.tier))
     .slice(0, 8);
   if (security.length) {
-    lines.push('Treat these as durable warnings; re-verify before touching the same surfaces:');
+    lines.push('## Security');
     for (const f of security) {
       const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
-      lines.push(`- (${tag}) ${escapeMd(truncate(f.evidence, 200))}`);
+      const nodeId = f.firstSeenNodeId ? ` [${f.firstSeenNodeId}]` : '';
+      lines.push(`- (${tag})${nodeId} ${escapeMd(truncate(compactEvidenceText(f.evidence), 200))}`);
     }
-  } else {
-    lines.push('- No security-sensitive actions or intents were detected in this session.');
+    lines.push('');
   }
-  lines.push('');
 
-  lines.push('## Preferred next work');
-  lines.push('');
+  lines.push('## Next');
   const strategic = nodes.filter(
     (n) =>
       live(n) &&
@@ -628,17 +618,29 @@ export function renderMemoryMarkdown(tree, opts = {}) {
   );
   const latest = latestByTime(strategic);
   if (latest) {
-    lines.push(`- Continue the most recent accepted direction: ${escapeMd(truncate(latest.title, 140))}`);
+    lines.push(`- Continue: ${escapeMd(truncate(latest.title, 140))}`);
   } else {
     lines.push(`- No open forward direction was stated; resume the goal of ${escapeMd(projectName)} and confirm scope with the user.`);
   }
   const openCorrections = nodes
     .filter((n) => live(n) && n.kind === 'correction' && isStrategicDirection(n))
     .slice(-3);
-  for (const n of openCorrections) lines.push(`- Keep this correction satisfied: ${escapeMd(truncate(n.title, 120))}`);
+  for (const n of openCorrections) lines.push(`- Constraint: ${escapeMd(truncate(n.title, 120))}`);
   lines.push('');
 
   return lines.join('\n');
+}
+
+function compactLessonText(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  const evidenceAt = normalized.indexOf('Specifically:');
+  return evidenceAt === -1 ? normalized : normalized.slice(evidenceAt + 'Specifically:'.length).trim();
+}
+
+function compactEvidenceText(text) {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  const quoted = normalized.match(/"[^"]+"/);
+  return quoted ? quoted[0] : normalized;
 }
 
 export function latestByTime(nodes) {
