@@ -28,6 +28,10 @@
   <a href="https://treetrace.dev">treetrace.dev</a>
 </p>
 
+<a href="https://treetrace.dev">
+  <img alt="TreeTrace launch video" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/prompt-tree.gif" width="760">
+</a>
+
 <picture>
   <img alt="TreeTrace turning a session into a prompt tree, lessons, and redacted output" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/demo.gif" width="760">
 </picture>
