@@ -9,3 +9,8 @@ node_modules/
 /TREETRACE_REPORT.md
 
 _ops/
+
+# Internal-only drafts and mock assets (do not publish)
+docs/launch-narrative-draft.md
+docs/dogfooding-case-study-findings.md
+docs/hero-mocks/
