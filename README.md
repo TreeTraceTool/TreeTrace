@@ -107,6 +107,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `.treetrace/lessons.md` | Human-readable lessons for future work |
 | `.treetrace/evals.jsonl` | Generic model-agnostic eval cases |
 | `.treetrace/agent-memory.md` | Compact memory pack for Codex, Claude Code, Cursor, or another agent |
+| `PROMPT_TREE_GRAPH.md` | Branded Mermaid graph of the prompt tree from `treetrace --graph`; renders free on GitHub with no dependencies, and large projects auto-summarize |
 | `treetrace --handoff` | Agent-ready continuation brief printed to stdout |
 
 <details>
@@ -140,6 +141,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `npx treetrace --lessons` | Write and print `.treetrace/lessons.md` |
 | `npx treetrace --evals` | Write and print `.treetrace/evals.jsonl` |
 | `npx treetrace --memory` | Write and print `.treetrace/agent-memory.md` |
+| `npx treetrace --graph` | Write `PROMPT_TREE_GRAPH.md`, a branded Mermaid graph that renders free on GitHub with no dependencies; large projects auto-summarize, and `--full` or `--summary` force a mode |
 | `npx treetrace --security` | Print a security-focused report and write `.treetrace/hallucinations.json` |
 | `npx treetrace mcp` | Start a read-only MCP server over stdio |
 | `npx treetrace --titles-only` | Compact human tree, no full prompt details |

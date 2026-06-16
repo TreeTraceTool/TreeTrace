@@ -2,6 +2,13 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.6.0 - 2026-06-16
+
+### Added
+
+- Prompt-tree graph visual via `treetrace --graph`. Emits `PROMPT_TREE_GRAPH.md`, a brand-styled Mermaid flowchart that runs from the goal through the steered progression of prompts to the result, with abandoned explorations as dimmed dotted detours. The diagram renders natively and free on GitHub and any Mermaid viewer, with zero runtime dependencies. Edge labels carry an opaque backing so their text stays legible over the spine line, and node labels truncate on a word boundary so they never end mid-word.
+- Large-project summary mode for the graph. Once a tree exceeds 25 live nodes, the graph automatically collapses to a spine-only summary so the whole project still reads at a glance: each abandoned branch folds into a single dim "N abandoned steps" stub, routine intermediate steps fold into "N steps" count stubs, and the goal, strategic turns, failure-flagged nodes, and result are kept. Small trees render in full. Pass `--full` or `--summary` to force a mode.
+
 ## 0.5.1 - 2026-06-15
 
 ### Fixed
