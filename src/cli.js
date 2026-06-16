@@ -7,6 +7,7 @@ import { classifyPrompts } from './extract.js';
 import { buildTree } from './tree.js';
 import { scanText, resolveFindings, applyDecisions, shadowScan } from './redact.js';
 import { renderMarkdown } from './render-md.js';
+import { renderMermaid, isSummaryByDefault } from './render-mermaid.js';
 import { renderJson } from './render-json.js';
 import { renderHandoff } from './handoff.js';
 import { renderReportMarkdown, renderTerminalSummary } from './report.js';
@@ -38,6 +39,8 @@ Usage:
   treetrace --lessons           write and print lessons Markdown
   treetrace --evals             write and print eval JSONL
   treetrace --memory            write and print compact agent memory
+  treetrace --graph             write a branded Mermaid prompt-tree graph (PROMPT_TREE_GRAPH.md)
+                                large projects auto-summarize; --full / --summary force a mode
   treetrace --security          print a security-focused report for this session
   treetrace mcp                 start a read-only MCP server over stdio
 
@@ -103,6 +106,24 @@ export async function main(argv) {
     writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
     process.stdout.write(securityReport);
     log(c.green(`✓ security report for ${projectName}; wrote .treetrace/hallucinations.json`));
+    return;
+  }
+
+  if (opts.graph) {
+    const graphOpts = { ...renderOpts, summary: opts.graphSummary, full: opts.graphFull };
+    const mermaid = renderMermaid(tree, graphOpts);
+    const summarized =
+      graphOpts.summary === true ||
+      (graphOpts.full !== true && isSummaryByDefault(tree));
+    const graphDoc = wrapMermaidDoc(mermaid, projectName, summarized);
+    const graphPath = resolve(projectDir, opts.out || 'PROMPT_TREE_GRAPH.md');
+    assertClean(graphDoc, decisions, 'PROMPT_TREE_GRAPH.md');
+    mkdirSync(projectDir, { recursive: true });
+    mkdirSync(ttDir, { recursive: true });
+    writeFileSync(graphPath, graphDoc);
+    writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
+    process.stdout.write(graphDoc);
+    log(c.green(`✓ prompt-tree graph for ${projectName} -> ${relativeish(graphPath, projectDir)}`));
     return;
   }
 
@@ -384,6 +405,30 @@ export function assertClean(rendered, decisions, label) {
   }
 }
 
+export function wrapMermaidDoc(mermaid, projectName, summarized = false) {
+  const intro = summarized
+    ? [
+        'Goal at the top, the steered progression of prompts as the bright spine, with',
+        'abandoned explorations and routine intermediate steps folded into dim count stubs',
+        'so the whole project still reads at a glance. Renders on GitHub and any Mermaid',
+        'viewer. Pass --full for every node.',
+      ]
+    : [
+        'Goal at the top, the winning progression of prompts as the bright spine, abandoned',
+        'explorations as dimmed dotted side detours. Renders on GitHub and any Mermaid viewer.',
+      ];
+  return [
+    `# Prompt Tree Graph: ${projectName}`,
+    '',
+    ...intro,
+    '',
+    '```mermaid',
+    mermaid,
+    '```',
+    '',
+  ].join('\n');
+}
+
 function summaryLine(stats, projectName) {
   const bits = [
     c.bold(plural(stats.promptCount, 'prompt')),
@@ -458,6 +503,9 @@ export function parseArgs(argv) {
     lessons: false,
     evals: false,
     memory: false,
+    graph: false,
+    graphSummary: false,
+    graphFull: false,
     security: false,
     mcp: false,
     titlesOnly: false,
@@ -497,6 +545,9 @@ export function parseArgs(argv) {
       case '--lessons': opts.lessons = true; break;
       case '--evals': opts.evals = true; break;
       case '--memory': opts.memory = true; break;
+      case '--graph': case '--mermaid': opts.graph = true; break;
+      case '--summary': opts.graph = true; opts.graphSummary = true; break;
+      case '--full': opts.graph = true; opts.graphFull = true; break;
       case '--security': opts.security = true; break;
       case 'mcp': case '--mcp': opts.mcp = true; break;
       case '--titles-only': opts.titlesOnly = true; break;

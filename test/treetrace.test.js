@@ -10,6 +10,7 @@ import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
 import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings } from '../src/redact.js';
 import { renderMarkdown, promptPack } from '../src/render-md.js';
+import { renderMermaid, isSummaryByDefault, SUMMARY_NODE_THRESHOLD } from '../src/render-mermaid.js';
 import { renderJson } from '../src/render-json.js';
 import { renderHandoff } from '../src/handoff.js';
 import { renderReportMarkdown, renderTerminalSummary } from '../src/report.js';
@@ -22,7 +23,7 @@ import {
   isRiskyCommand,
   mentionsTestSkip,
 } from '../src/analyze.js';
-import { main, parseArgs } from '../src/cli.js';
+import { main, parseArgs, wrapMermaidDoc } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
 import { sha256, escapeMd } from '../src/util.js';
 import { detectHallucinations, renderHallucinationsJson } from '../src/hallucinate.js';
@@ -1619,6 +1620,204 @@ test('NEGATIVE CORPUS (release gate): benign inputs produce zero security/failur
       const hi = scanText(text).filter((f) => f.severity === 'high' || f.severity === 'medium');
       assert.equal(hi.length, 0, `redaction over-fired on benign text "${text}": ${JSON.stringify(hi.map((f) => f.ruleId))}`);
     }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mermaid: renders a branded flowchart with goal, result, and spine styling', async () => {
+  const { tree } = await fixtureTree();
+  const out = renderMermaid(tree, { projectName: 'weather-dashboard' });
+
+  // Branded init theme leads, then the top-down flowchart and class scaffolding.
+  assert.ok(out.startsWith("%%{init:"), 'must lead with a Mermaid init directive');
+  assert.match(out, /'background':'#0B1210'/, 'dark Bark canvas background');
+  assert.match(out, /'edgeLabelBackground':'#0B1210'/, 'opaque edge-label backing for legibility');
+  assert.match(out, /JetBrains Mono/, 'JetBrains Mono brand font');
+  assert.match(out, /^flowchart TD$/m, 'declares a top-down flowchart');
+  assert.match(out, /classDef spine fill:#121A17,stroke:#0CA08A/, 'brand spine class (teal)');
+  assert.match(out, /classDef abandoned [^\n]*stroke:#34493F[^\n]*stroke-dasharray/, 'Branch-Dim dashed abandoned class');
+  assert.match(out, /classDef failure [^\n]*stroke:#F0B86A/, 'amber failure class');
+
+  // Goal = root, stadium-shaped and annotated; result annotated; both on the spine.
+  assert.match(out, /N001\(\["GOAL: /, 'root node is a stadium labelled GOAL');
+  assert.match(out, /class N001 [^\n]*goal/, 'root carries the goal class');
+  assert.match(out, /RESULT: /, 'a result node is annotated');
+  assert.match(out, /class \w+ [^\n]*result/, 'a node carries the result class');
+  assert.match(out, /\(\["RESULT: /, 'the result node is a stadium terminal');
+
+  // Spine links are tinted Canopy and thickened.
+  assert.match(out, /class N001 [^\n]*spine/, 'root is on the spine');
+  assert.match(out, /linkStyle [\d,]+ stroke:#5BF0B8,stroke-width:2\.5px;/, 'spine links are Canopy-tinted');
+
+  // Edges carry relationship labels from the tree, including the correction.
+  assert.match(out, /N001 -->\|refines\| N002/, 'root refines into the first direction');
+  assert.match(out, /-->\|corrects\| /, 'correction edge labelled');
+
+  // Node-declaration lines must not leak raw angle brackets into labels (entity-encoded).
+  const labelLines = out.split('\n').filter((l) => /^  (N\w+|A\d+|S\d+)(\[|\(\[|\{\{)"/.test(l));
+  assert.ok(labelLines.length >= 4, 'each prompt is declared as a node');
+  for (const line of labelLines) {
+    const label = line.match(/"([^"]*)"/)[1];
+    assert.ok(!/[<>]/.test(label.replace(/&lt;|&gt;/g, '')), `unescaped angle bracket in label: ${line}`);
+  }
+});
+
+test('mermaid: labels truncate on a word boundary, never mid-word', () => {
+  const root = {
+    id: 'node_001', kind: 'root', status: 'accepted', parent: null, actions: [],
+    title: 'Build a resilient weather dashboard with hourly forecast charts and radar layers everywhere',
+    text: 'Build a resilient weather dashboard with hourly forecast charts and radar layers everywhere',
+  };
+  const out = renderMermaid({ nodes: [root] }, { projectName: 'demo' });
+  const label = out.match(/N001\(\["GOAL: ([^"]*)"\]\)/)[1];
+  assert.ok(label.endsWith('…'), `label should end with a single-char ellipsis: ${label}`);
+  // The character before the ellipsis must be a full word, not a cut-off fragment: the
+  // visible body (sans ellipsis) is a prefix of the source ending at a word in the source.
+  const body = label.slice(0, -1);
+  assert.ok(/\w$/.test(body), 'body ends on a word character (no trailing space)');
+  assert.ok(root.title.startsWith(body), 'body is a clean prefix of the source');
+  assert.ok(/(^|\s)$/.test(root.title.slice(body.length, body.length + 1)) || root.title.length === body.length,
+    `truncation landed mid-word: "${body}|${root.title.slice(body.length, body.length + 8)}"`);
+});
+
+test('mermaid: abandoned branches render as dimmed dotted detours off the spine', () => {
+  // Synthetic tree: root -> good direction -> result; root -> abandoned detour.
+  const mk = (id, kind, title, status) => ({
+    id,
+    kind,
+    title,
+    text: title,
+    status: status || 'accepted',
+    ts: `2026-06-01T10:0${id.slice(-1)}:00.000Z`,
+    parent: null,
+    actions: [],
+  });
+  const root = mk('node_001', 'root', 'Build the thing');
+  const good = mk('node_002', 'direction', 'Refine the good approach');
+  const result = mk('node_003', 'direction', 'Ship the chosen design');
+  const dead = mk('node_004', 'direction', 'Try a heavy approach we drop', 'abandoned');
+  good.parent = root;
+  result.parent = good;
+  dead.parent = root;
+  const tree = { nodes: [root, good, result, dead] };
+
+  const out = renderMermaid(tree, { projectName: 'demo' });
+
+  // Abandoned node is classed abandoned (not spine) and its edge is dotted.
+  assert.match(out, /class N004 abandoned;/, 'abandoned node carries only the abandoned class');
+  assert.ok(!/class N004 [^\n]*spine/.test(out), 'abandoned node is not on the spine');
+  assert.match(out, /N001 -\.->\|refines\| N004/, 'abandoned branch uses a dotted edge');
+
+  // Live nodes stay on the spine; the dotted detour edge is excluded from spine linkStyle.
+  assert.match(out, /class N002 [^\n]*spine/, 'good direction on spine');
+  assert.match(out, /class N003 [^\n]*result/, 'last live direction is the result');
+  // Spine links are the two live edges (indexes 0 and 1), not the abandoned edge (index 2).
+  assert.match(out, /linkStyle 0,1 stroke/, 'only live edges are thickened');
+});
+
+test('mermaid: wrapMermaidDoc emits a fenced mermaid block that renders on GitHub', () => {
+  const doc = wrapMermaidDoc('flowchart TD\n  N001["x"]', 'demo');
+  assert.ok(doc.includes('```mermaid\n'), 'opens a mermaid fence');
+  assert.ok(doc.trimEnd().endsWith('```'), 'closes the fence');
+  assert.ok(doc.includes('flowchart TD'), 'contains the diagram');
+  const summaryDoc = wrapMermaidDoc('flowchart TD\n  N001["x"]', 'demo', true);
+  assert.match(summaryDoc, /count stubs/, 'summary doc explains the folding');
+  assert.match(summaryDoc, /--full/, 'summary doc points at --full to expand');
+});
+
+// Build a linear live spine of `liveDirections` direction nodes off a root, with a small
+// abandoned detour, so we can exercise the summary collapse deterministically.
+function bigTree(liveDirections, withAbandoned = true) {
+  const nodes = [];
+  const root = {
+    id: 'node_001', kind: 'root', status: 'accepted', parent: null, actions: [],
+    title: 'Build the whole product', text: 'Build the whole product',
+    ts: '2026-06-01T10:00:00.000Z',
+  };
+  nodes.push(root);
+  let prev = root;
+  for (let k = 2; k <= liveDirections + 1; k++) {
+    // Alternate direction (strategic, kept) with checkpoint (routine, folded).
+    const kind = k % 3 === 0 ? 'checkpoint' : 'direction';
+    const n = {
+      id: `node_${String(k).padStart(3, '0')}`, kind, status: 'accepted', parent: prev,
+      title: `Strategic move number ${k} in the plan`, text: `Strategic move number ${k} in the plan`,
+      ts: `2026-06-01T10:${String(k).padStart(2, '0')}:00.000Z`, actions: [],
+    };
+    nodes.push(n);
+    prev = n;
+  }
+  if (withAbandoned) {
+    const dead1 = {
+      id: 'node_900', kind: 'direction', status: 'abandoned', parent: root, actions: [],
+      title: 'Heavy approach we dropped', text: 'Heavy approach we dropped',
+      ts: '2026-06-01T10:05:00.000Z',
+    };
+    const dead2 = {
+      id: 'node_901', kind: 'direction', status: 'abandoned', parent: dead1, actions: [],
+      title: 'Follow-up on the dropped approach', text: 'Follow-up on the dropped approach',
+      ts: '2026-06-01T10:06:00.000Z',
+    };
+    nodes.push(dead1, dead2);
+  }
+  return { nodes };
+}
+
+test('mermaid: small trees render in full, large trees auto-summarize', () => {
+  const small = bigTree(4);
+  assert.equal(isSummaryByDefault(small), false, 'a 5-live-node tree renders in full');
+  const smallOut = renderMermaid(small, { projectName: 'demo' });
+  // Every live node is declared individually in full mode (N004 is a plain box).
+  assert.match(smallOut, /N004\[/, 'full mode declares each live node');
+  assert.ok(!/\d+ steps"/.test(smallOut), 'full mode has no count stubs');
+
+  const big = bigTree(SUMMARY_NODE_THRESHOLD + 5);
+  assert.equal(isSummaryByDefault(big), true, 'over the threshold auto-summarizes');
+  const bigOut = renderMermaid(big, { projectName: 'demo' });
+  assert.match(bigOut, /^flowchart TD$/m, 'summary is still a valid flowchart');
+  assert.match(bigOut, /\(\["GOAL: /, 'GOAL stadium preserved in summary');
+  assert.match(bigOut, /RESULT: /, 'RESULT preserved in summary');
+  // Routine intermediate steps fold into count stubs; the summary is smaller than full.
+  assert.match(bigOut, /\d+ steps?"/, 'routine steps fold into a count stub');
+  const fullOut = renderMermaid(big, { projectName: 'demo', full: true });
+  assert.ok(bigOut.split('\n').length < fullOut.split('\n').length, 'summary is more compact than full');
+  assert.match(fullOut, /N0\d\d\[/, 'forcing --full declares each node even on a big tree');
+});
+
+test('mermaid: summary folds abandoned branches into one dim count stub', () => {
+  const big = bigTree(SUMMARY_NODE_THRESHOLD + 3, true);
+  const out = renderMermaid(big, { projectName: 'demo', summary: true });
+  // The two-node abandoned subtree collapses to a single "2 abandoned steps" stub.
+  assert.match(out, /A\d+\["2 abandoned steps"\]/, 'abandoned subtree folds into a counted stub');
+  assert.match(out, /class A\d+ abandoned;/, 'the stub keeps the dim abandoned class');
+  // The individual abandoned node ids are not declared in the summary.
+  assert.ok(!/N900\[/.test(out) && !/N901\[/.test(out), 'individual abandoned nodes are not drawn');
+  // Word-boundary truncation still applies to kept labels.
+  assert.ok(!/[A-Za-z]…[A-Za-z]/.test(out), 'no mid-word ellipsis in any label');
+});
+
+test('mermaid: --summary forces summary mode even on a small tree', () => {
+  const small = bigTree(3);
+  const forced = renderMermaid(small, { projectName: 'demo', summary: true });
+  // Forcing summary on a tiny tree still produces a valid flowchart with the GOAL/RESULT.
+  assert.match(forced, /^flowchart TD$/m, 'forced summary is a valid flowchart');
+  assert.match(forced, /\(\["GOAL: /, 'forced summary keeps the GOAL');
+});
+
+test('cli: --graph writes PROMPT_TREE_GRAPH.md with a mermaid flowchart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-graph-'));
+  try {
+    await main(['--file', FIXTURE, '--dir', dir, '--graph', '--redact-auto', '--quiet']);
+    const p = join(dir, 'PROMPT_TREE_GRAPH.md');
+    assert.ok(existsSync(p), 'PROMPT_TREE_GRAPH.md must be written');
+    const text = readFileSync(p, 'utf8');
+    assert.ok(text.includes('```mermaid'), 'contains a mermaid fence');
+    assert.ok(text.includes('flowchart TD'), 'contains a flowchart');
+    assert.ok(/GOAL: /.test(text), 'annotates the goal');
+    // Redaction gate still holds: the planted secret must not leak into the graph.
+    assert.ok(!text.includes('sk-ant-api03-FAKEFAKEFAKEFAKEFAKEFAKE1234'), 'secret stays redacted');
+    assert.ok(!text.includes('hunter2pass'), 'embedded credential stays redacted');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
