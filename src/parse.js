@@ -1,8 +1,51 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { truncate } from './util.js';
 import { TreetraceError, ExitCode } from './util.js';
 
 const DAG_TYPES = new Set(['user', 'assistant', 'system', 'attachment']);
+
+// --- Rejection / refusal / decline detection (v0.3) ---
+// Named, individually-testable regex pieces composed at load time, following the
+// v0.7.0 precedent for security intent and risky-command detection. Each class
+// maps to one Rejection.kind. Order in TOOL_RESULT_REJECTION_PATTERNS matters:
+// the first match wins, so more specific (user_declined_tool) precedes less
+// specific (permission_denied, tool_execution_error).
+
+const USER_DECLINED_TOOL_RE =
+  /\bthe user (?:doesn'?t|does not|didn'?t|did not) want to proceed with this tool use\b|\bthe user (?:wants?|wanted) (?:you|me|the agent) to\b|\buser (?:rejected|declined|cancelled|canceled) (?:this|the) tool(?: use)?\b|\buser chose to reject\b/i;
+
+const PERMISSION_DENIED_RE =
+  /\bpermission denied\b|\boperation not permitted\b|\bEACCES\b|\bEPERM\b|\bcommand not found\b|\bOperation cancelled\b|\baccess is denied\b|\brequires? elevation\b/i;
+
+const REFUSAL_TEXT_RE =
+  /\b(?:i (?:can(?:'|no)t|am (?:unable|not able|not permitted) to|won['']?t|cannot|do not|don['']?t (?:think i (?:should|can)|feel comfortable)|'?m not (?:able|allowed|going) to)|(?:sorry|apolog(?:y|ies|ize))[,.]? i (?:can(?:'|no)t|am unable|won['']?t|cannot)|as (?:an? )?(?:ai|language model|assistant)[, ]+(?:i |we )?(?:can(?:'|no)t|cannot|am unable|won['']?t)|i'?m programmed (?:to decline|not to)|against my (?:guidelines|policies|programming))\b/i;
+
+const USER_TEXT_DECLINE_RE =
+  /^(?:no(?:pe)?\s*[,.)]?\s+|stop\s*[,.)]?\s+|cancel\s*[,.)]?\s+|don'?t\s+|do not\s+|don'?t do (?:that|this|it)\b|stop (?:that|this|it|doing)\b|not that one\b|scratch that\b|nevermind\b|never mind\b)/i;
+
+// tool_result rejection classifier. Returns { kind, confidence, evidence } or null.
+function classifyToolResultRejection(content) {
+  const text = typeof content === 'string' ? content : '';
+  if (!text) return { kind: 'tool_execution_error', confidence: 0.85, evidence: null };
+  if (USER_DECLINED_TOOL_RE.test(text)) {
+    return { kind: 'user_declined_tool', confidence: 1.0, evidence: truncate(text, 160) };
+  }
+  if (PERMISSION_DENIED_RE.test(text)) {
+    return { kind: 'permission_denied', confidence: 0.85, evidence: truncate(text, 160) };
+  }
+  return { kind: 'tool_execution_error', confidence: 0.9, evidence: truncate(text, 160) };
+}
+
+function looksLikeRefusal(text) {
+  return typeof text === 'string' && text.length <= 4000 && REFUSAL_TEXT_RE.test(text);
+}
+
+function looksLikeUserTextDecline(text) {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (!t || t.length > 240) return false;
+  return USER_TEXT_DECLINE_RE.test(t);
+}
 
 export async function parseSessionFile(path, sessionMeta = {}) {
   const session = {
@@ -28,6 +71,8 @@ export async function parseSessionFile(path, sessionMeta = {}) {
       inputTokens: 0,
       outputTokens: 0,
       interruptions: 0,
+      rejections: 0,
+      rejectionsByKind: Object.create(null),
     },
     isContinuation: false,
     _usageByMsgId: new Map(),
@@ -63,6 +108,7 @@ export async function parseSessionFile(path, sessionMeta = {}) {
   if (session.customTitle) session.title = session.customTitle;
   session.stats.models = [...session.stats.models];
   session.stats.filesTouched = [...session.stats.filesTouched];
+  session.stats.rejectionsByKind = { ...session.stats.rejectionsByKind };
   return session;
 }
 
@@ -123,6 +169,36 @@ function indexDagNode(session, rec, { parentOverride } = {}) {
   if (!rec.isSidechain) session.leafUuid = rec.uuid;
 }
 
+// Attach a rejection to the current prompt. If no current prompt exists (e.g.
+// a tool-result rejection arrives before any text prompt), synthesize a
+// rejection-only prompt so the signal is never lost. O(1) per call.
+function attachRejection(session, rejection) {
+  if (!rejection || typeof rejection.kind !== 'string') return;
+  let prompt = session._currentPrompt;
+  if (!prompt) {
+    prompt = {
+      uuid: null,
+      parentUuid: session.leafUuid || null,
+      ts: rejection.ts || null,
+      text: '',
+      hasImage: false,
+      hadToolResultContext: true,
+      afterInterruption: false,
+      actions: [],
+      thinking: 0,
+      rejections: [],
+      isRejectionOnly: true,
+    };
+    session.prompts.push(prompt);
+    session._currentPrompt = prompt;
+  }
+  if (!Array.isArray(prompt.rejections)) prompt.rejections = [];
+  prompt.rejections.push(rejection);
+  session.stats.rejections = (session.stats.rejections || 0) + 1;
+  session.stats.rejectionsByKind = session.stats.rejectionsByKind || Object.create(null);
+  session.stats.rejectionsByKind[rejection.kind] = (session.stats.rejectionsByKind[rejection.kind] || 0) + 1;
+}
+
 function ingestUser(session, rec) {
 
   if (rec.isSidechain || rec.agentId) return;
@@ -140,14 +216,63 @@ function ingestUser(session, rec) {
   if (rec.origin && rec.origin.kind === 'task-notification') return;
 
   const msg = rec.message || {};
-  const { text, hasImage, hasToolResult, hasOnlyToolResult } = flattenUserContent(msg.content);
-  if (hasOnlyToolResult) return;
+  const { text, hasImage, hasToolResult, hasOnlyToolResult, toolResults } = flattenUserContent(msg.content);
+
+  // Tool-result-only records were previously dropped silently. Now they are
+  // mined for rejections (user-decline, tool error, permission denied) before
+  // being skipped as non-prompts. Synthetic-tool-result echoes from the
+  // harness carry no is_error and produce no rejection.
+  if (hasOnlyToolResult) {
+    for (const tr of toolResults) {
+      if (tr && tr.isError) {
+        const cls = classifyToolResultRejection(tr.content);
+        attachRejection(session, {
+          kind: cls.kind,
+          source: 'tool_result',
+          confidence: cls.confidence,
+          toolUseId: tr.toolUseId || null,
+          tool: null,
+          ts: rec.timestamp || null,
+          evidence: cls.evidence,
+        });
+      }
+    }
+    return;
+  }
+
+  // Mixed text + tool_result: still extract any rejection signal from the
+  // tool_result blocks before continuing into the text-classification path.
+  if (hasToolResult && Array.isArray(toolResults)) {
+    for (const tr of toolResults) {
+      if (tr && tr.isError) {
+        const cls = classifyToolResultRejection(tr.content);
+        attachRejection(session, {
+          kind: cls.kind,
+          source: 'tool_result',
+          confidence: cls.confidence,
+          toolUseId: tr.toolUseId || null,
+          tool: null,
+          ts: rec.timestamp || null,
+          evidence: cls.evidence,
+        });
+      }
+    }
+  }
 
   let trimmed = (text || '').trim();
 
   if (/^\[Request interrupted by user/i.test(trimmed)) {
     session.stats.interruptions++;
     session._pendingInterruption = true;
+    attachRejection(session, {
+      kind: 'user_interrupt',
+      source: 'text',
+      confidence: 1.0,
+      toolUseId: null,
+      tool: null,
+      ts: rec.timestamp || null,
+      evidence: truncate(trimmed, 160) || '[Request interrupted by user]',
+    });
     return;
   }
 
@@ -171,6 +296,16 @@ function ingestUser(session, rec) {
   if (!trimmed && hasImage) trimmed = '[image-only prompt: screenshot/annotated feedback]';
   if (!trimmed) return;
 
+  // Text-decline rejection: detect after we know trimmed is non-empty and is a
+  // real prompt (not meta/command/compact). The placeholder this pushes doubles
+  // as the canonical prompt for this turn (it already carries the rejection),
+  // so we return immediately to avoid pushing a second prompt below.
+  if (looksLikeUserTextDecline(trimmed)) {
+    attachRejectionToText(session, rec, trimmed, 'user_text_decline', 'text', 0.8);
+    session._pendingInterruption = false;
+    return;
+  }
+
   const prompt = {
     uuid: rec.uuid || null,
     parentUuid: rec.parentUuid || null,
@@ -181,10 +316,40 @@ function ingestUser(session, rec) {
     afterInterruption: Boolean(session._pendingInterruption),
     actions: [],
     thinking: 0,
+    rejections: [],
   };
   session.prompts.push(prompt);
   session._currentPrompt = prompt;
   session._pendingInterruption = false;
+}
+
+// Variant of attachRejection that links the rejection to the prompt we are
+// about to create. We push a placeholder _currentPrompt first so attachRejection
+// finds it, then fill in the real fields.
+function attachRejectionToText(session, rec, text, kind, source, confidence) {
+  const placeholder = {
+    uuid: rec.uuid || null,
+    parentUuid: rec.parentUuid || null,
+    ts: rec.timestamp || null,
+    text,
+    hasImage: false,
+    hadToolResultContext: false,
+    afterInterruption: Boolean(session._pendingInterruption),
+    actions: [],
+    thinking: 0,
+    rejections: [],
+  };
+  session.prompts.push(placeholder);
+  session._currentPrompt = placeholder;
+  attachRejection(session, {
+    kind,
+    source,
+    confidence,
+    toolUseId: null,
+    tool: null,
+    ts: rec.timestamp || null,
+    evidence: truncate(text, 160),
+  });
 }
 
 function ingestAssistant(session, rec) {
@@ -203,9 +368,25 @@ function ingestAssistant(session, rec) {
 
   const current = session._currentPrompt;
   const content = Array.isArray(msg.content) ? msg.content : [];
+  let refusedByText = false;
   for (const block of content) {
     if (!block) continue;
-    if (block.type === 'tool_use') {
+    if (block.type === 'text') {
+      // Refusal heuristic on assistant text. Lower confidence than stop_reason
+      // because phrasing overlap with normal hedging is possible.
+      if (!refusedByText && looksLikeRefusal(block.text)) {
+        refusedByText = true;
+        attachRejection(session, {
+          kind: 'model_refusal',
+          source: 'text_heuristic',
+          confidence: 0.7,
+          toolUseId: null,
+          tool: null,
+          ts: rec.timestamp || null,
+          evidence: truncate(typeof block.text === 'string' ? block.text : '', 160),
+        });
+      }
+    } else if (block.type === 'tool_use') {
       session.stats.toolUses++;
       const input = block.input || {};
       const file = input.file_path || input.notebook_path || null;
@@ -222,6 +403,21 @@ function ingestAssistant(session, rec) {
     } else if (block.type === 'thinking' || block.type === 'redacted_thinking') {
       if (current) current.thinking++;
     }
+  }
+
+  // API-level refusal signal. Higher confidence than the text heuristic because
+  // it is the provider's structured verdict, not a phrase match. If both fire,
+  // both rejections are kept; downstream de-duplication collapses them by kind.
+  if (msg.stop_reason === 'refusal') {
+    attachRejection(session, {
+      kind: 'model_refusal',
+      source: 'stop_reason',
+      confidence: 0.95,
+      toolUseId: null,
+      tool: null,
+      ts: rec.timestamp || null,
+      evidence: null,
+    });
   }
 }
 
@@ -262,13 +458,13 @@ function compactJson(value) {
 
 function flattenUserContent(content) {
   if (typeof content === 'string') {
-    return { text: content, hasImage: false, hasToolResult: false, hasOnlyToolResult: false };
+    return { text: content, hasImage: false, hasToolResult: false, hasOnlyToolResult: false, toolResults: [] };
   }
   if (!Array.isArray(content)) {
-    return { text: '', hasImage: false, hasToolResult: false, hasOnlyToolResult: false };
+    return { text: '', hasImage: false, hasToolResult: false, hasOnlyToolResult: false, toolResults: [] };
   }
   let text = '';
-  let toolResults = 0;
+  const toolResults = [];
   let others = 0;
   let images = 0;
   for (const block of content) {
@@ -277,7 +473,26 @@ function flattenUserContent(content) {
       text += (text ? '\n' : '') + block.text;
       others++;
     } else if (block.type === 'tool_result') {
-      toolResults++;
+      // Coerce tool_result content into a flat string. Claude Code shapes it
+      // either as a string or as an array of {type:"text", text} blocks.
+      const raw = block.content;
+      let blockText = '';
+      if (typeof raw === 'string') blockText = raw;
+      else if (Array.isArray(raw)) {
+        for (const part of raw) {
+          if (part && typeof part === 'object' && typeof part.text === 'string') {
+            blockText += (blockText ? '\n' : '') + part.text;
+          } else if (typeof part === 'string') {
+            blockText += (blockText ? '\n' : '') + part;
+          }
+        }
+      }
+      toolResults.push({
+        toolUseId: typeof block.tool_use_id === 'string' ? block.tool_use_id : null,
+        isError: block.is_error === true,
+        content: blockText,
+        contentType: typeof raw === 'string' ? 'string' : Array.isArray(raw) ? 'array' : 'other',
+      });
     } else if (block.type === 'image') {
       images++;
     } else {
@@ -287,8 +502,9 @@ function flattenUserContent(content) {
   return {
     text,
     hasImage: images > 0,
-    hasToolResult: toolResults > 0,
-    hasOnlyToolResult: toolResults > 0 && others === 0 && images === 0,
+    hasToolResult: toolResults.length > 0,
+    hasOnlyToolResult: toolResults.length > 0 && others === 0 && images === 0,
+    toolResults,
   };
 }
 
@@ -380,7 +596,7 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
     gitBranch: null,
     firstTs: null,
     lastTs: null,
-    prompts: prompts.map((p) => ({ ...p, text: p.text.trim(), actions: [], thinking: 0 })),
+    prompts: prompts.map((p) => ({ ...p, text: p.text.trim(), actions: [], thinking: 0, rejections: [] })),
     index: new Map(),
     leafUuid: null,
     activeLeafUuid: null,
@@ -393,6 +609,8 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
       inputTokens: 0,
       outputTokens: 0,
       interruptions: 0,
+      rejections: 0,
+      rejectionsByKind: {},
     },
     isContinuation: false,
   };

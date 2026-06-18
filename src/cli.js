@@ -14,6 +14,7 @@ import { renderReportMarkdown, renderTerminalSummary } from './report.js';
 import {
   analyzeTree,
   renderFailuresJson,
+  renderRejectionsJson,
   renderLessonsMarkdown,
   renderEvalsJsonl,
   renderMemoryMarkdown,
@@ -36,6 +37,7 @@ Usage:
   treetrace --report            write all artifacts and print the human report
   treetrace --handoff           print an agent-ready handoff brief to stdout
   treetrace --failures          write and print failure-analysis JSON
+  treetrace --rejections        write and print rejection/refusal/decline JSON (v0.3)
   treetrace --lessons           write and print lessons Markdown
   treetrace --evals             write and print eval JSONL
   treetrace --memory            write and print compact agent memory
@@ -52,6 +54,7 @@ Options:
   --report-file <file>  human report output path (default: TREETRACE_REPORT.md)
   --json                also print lineage JSON to stdout
   --analysis            write failure, lesson, eval, and memory artifacts
+  --rejections          write and print .treetrace/rejections.json (v0.3)
   --titles-only         omit full prompt texts from the markdown tree
   --security            print a security-focused report and write hallucinations.json
   --mcp                 start a read-only MCP server over stdio (same as: treetrace mcp)
@@ -268,6 +271,15 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
         if (typeof action[field] === 'string') findings.push(...scanText(action[field]));
       }
     }
+    // v0.3: rejection evidence is rendered in reports/rejections.json and the
+    // MCP tool, so it must pass the same redaction gate as prompt text and
+    // action bodies. A secret in a tool_result or refusal text would otherwise
+    // reach written artifacts.
+    if (Array.isArray(node.rejections)) {
+      for (const r of node.rejections) {
+        if (typeof r.evidence === 'string') findings.push(...scanText(r.evidence));
+      }
+    }
   }
 
   const interactive = !forceAuto && process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
@@ -302,6 +314,14 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
       for (const field of ACTION_FIELDS) {
         if (typeof action[field] === 'string') {
           action[field] = applyDecisions(action[field], findings, decisions);
+        }
+      }
+    }
+    // v0.3: apply the same redaction decisions to rejection evidence.
+    if (Array.isArray(node.rejections)) {
+      for (const r of node.rejections) {
+        if (typeof r.evidence === 'string') {
+          r.evidence = applyDecisions(r.evidence, findings, decisions);
         }
       }
     }
@@ -373,6 +393,11 @@ function analysisArtifacts(ttDir, tree, renderOpts, projectDir) {
       path: join(ttDir, 'failures.json'),
       text: JSON.stringify(renderFailuresJson(tree, renderOpts), null, 2),
     },
+    rejections: {
+      label: 'rejections.json',
+      path: join(ttDir, 'rejections.json'),
+      text: JSON.stringify(renderRejectionsJson(tree, renderOpts), null, 2),
+    },
     hallucinations: {
       label: 'hallucinations.json',
       path: join(ttDir, 'hallucinations.json'),
@@ -399,6 +424,7 @@ function analysisArtifacts(ttDir, tree, renderOpts, projectDir) {
 function requestedArtifacts(opts, artifacts) {
   const requested = [];
   if (opts.failures) requested.push(artifacts.failures);
+  if (opts.rejections) requested.push(artifacts.rejections);
   if (opts.lessons) requested.push(artifacts.lessons);
   if (opts.evals) requested.push(artifacts.evals);
   if (opts.memory) requested.push(artifacts.memory);
@@ -513,6 +539,7 @@ export function parseArgs(argv) {
     json: false,
     analysis: false,
     failures: false,
+    rejections: false,
     lessons: false,
     evals: false,
     memory: false,
@@ -556,6 +583,7 @@ export function parseArgs(argv) {
       case '--json': opts.json = true; break;
       case '--analysis': opts.analysis = true; break;
       case '--failures': opts.failures = true; break;
+      case '--rejections': opts.rejections = true; break;
       case '--lessons': opts.lessons = true; break;
       case '--evals': opts.evals = true; break;
       case '--memory': opts.memory = true; break;

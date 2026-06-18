@@ -1,4 +1,4 @@
-import { analyzeTree, latestByTime } from './analyze.js';
+import { analyzeTree, latestByTime, renderRejectionsJson } from './analyze.js';
 import { plural, truncate, escapeMd } from './util.js';
 import { REPO_URL } from './config.js';
 
@@ -35,6 +35,14 @@ export function renderReportMarkdown(tree, opts = {}) {
   );
   if (tree.stats.corrections) lines.push(`- Corrections: ${tree.stats.corrections}`);
   if (tree.stats.abandonedBranches) lines.push(`- Abandoned branches: ${tree.stats.abandonedBranches}`);
+  if (tree.stats.rejections) {
+    const byKind = tree.stats.rejectionsByKind || {};
+    const breakdown = Object.entries(byKind)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`)
+      .join(', ');
+    lines.push(`- Rejections: ${tree.stats.rejections}${breakdown ? ` (${breakdown})` : ''}`);
+  }
   if (analysis.summary.models && analysis.summary.models.length) {
     lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
   }
@@ -53,6 +61,7 @@ export function renderReportMarkdown(tree, opts = {}) {
   lines.push('| `PROMPT_TREE.md` | prompt lineage + replay pack |');
   lines.push('| `.treetrace/tree.json` | canonical schema |');
   lines.push('| `.treetrace/failures.json` | labels + correction chains |');
+  lines.push('| `.treetrace/rejections.json` | typed rejections/refusals/declines (v0.3) |');
   lines.push('| `.treetrace/hallucinations.json` | unresolved references |');
   lines.push('| `.treetrace/lessons.md` | correction memory |');
   lines.push('| `.treetrace/evals.jsonl` | regression eval cases |');
@@ -88,6 +97,31 @@ export function renderReportMarkdown(tree, opts = {}) {
       const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
       const nodeId = f.firstSeenNodeId ? ` [${f.firstSeenNodeId}]` : '';
       lines.push(`- (${tag})${nodeId} ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
+    }
+    lines.push('');
+  }
+
+  const rejectionsView = renderRejectionsJson(tree, opts);
+  if (rejectionsView.summary.total) {
+    lines.push('## Rejections');
+    lines.push('');
+    lines.push('Typed rejection / refusal / decline events captured on the session. Each one is also surfaced as a failure signal of the mapped type.');
+    lines.push('');
+    const byKind = rejectionsView.summary.byKind || {};
+    const breakdown = Object.entries(byKind)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k.replace(/_/g, ' ')} (${v})`)
+      .join(', ');
+    lines.push(`- Total: ${rejectionsView.summary.total}${breakdown ? ` — ${breakdown}` : ''}`);
+    lines.push('');
+    for (const r of rejectionsView.rejections.slice(0, 12)) {
+      const nodeId = r.nodeId ? ` [${r.nodeId}]` : '';
+      const pct = `${Math.round((r.confidence || 0) * 100)}%`;
+      const ev = r.evidence ? ` — ${escapeMd(truncate(r.evidence, 160))}` : '';
+      lines.push(`- (${r.kind}, ${pct})${nodeId}${ev}`);
+    }
+    if (rejectionsView.rejections.length > 12) {
+      lines.push(`- ... ${rejectionsView.rejections.length - 12} more in .treetrace/rejections.json`);
     }
     lines.push('');
   }

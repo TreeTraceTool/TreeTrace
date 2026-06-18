@@ -7,6 +7,7 @@ const RELATIONSHIP_BY_KIND = {
   'scope-change': 'expands',
   checkpoint: 'checkpoints',
   question: 'asks',
+  rejection: 'rejects',
   root: 'refines',
 };
 
@@ -32,6 +33,8 @@ export function renderJson(tree, opts = {}) {
       scopeChanges: stats.scopeChanges,
       checkpoints: stats.checkpoints,
       abandonedBranches: stats.abandonedBranches,
+      rejections: stats.rejections || 0,
+      rejectionsByKind: stats.rejectionsByKind || {},
       toolUses: stats.toolUses,
       filesTouched: stats.filesTouched,
       models: stats.models,
@@ -69,6 +72,7 @@ export function renderJson(tree, opts = {}) {
       failureSignals: n.failureSignals || [],
       evalCandidate: Boolean(n.evalCandidate),
       lessonIds: n.lessonIds || [],
+      rejections: n.rejections || [],
 
       sourceEventIds: n.uuid ? [n.uuid] : [],
     })),

@@ -2,7 +2,7 @@ import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
 import { parseArgs, loadRedactedTree, detectProjectName, assertClean } from './cli.js';
 import { renderHandoff } from './handoff.js';
-import { renderLessonsMarkdown, analyzeTree } from './analyze.js';
+import { renderLessonsMarkdown, analyzeTree, renderRejectionsJson } from './analyze.js';
 import { renderSecurityReport } from './security-report.js';
 import { renderHallucinationsJson } from './hallucinate.js';
 import { renderJson } from './render-json.js';
@@ -36,6 +36,11 @@ const TOOL_DEFS = [
   {
     name: 'tree',
     description: 'Full prompt-lineage tree as canonical JSON (nodes, stats, analysis). The structured counterpart to the Markdown reports. Read only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'rejections_summary',
+    description: 'Typed rejection / refusal / decline events captured on the session (tool declines, interrupts, permission denials, tool errors, model refusals). Read only.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
 ];
@@ -185,6 +190,8 @@ function renderTool(name, tree, renderOpts) {
     }
     case 'tree':
       return JSON.stringify(renderJson(tree, renderOpts), null, 2);
+    case 'rejections_summary':
+      return JSON.stringify(renderRejectionsJson(tree, renderOpts), null, 2);
     default:
       return '';
   }

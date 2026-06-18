@@ -1,8 +1,8 @@
-# TreeTrace lineage schema v0.2
+# TreeTrace lineage schema v0.3
 
 `.treetrace/tree.json` is an open, vendor-neutral format for prompt lineage and agent-regression analysis in AI-assisted projects.
 
-TreeTrace records the human steering layer: what was asked, what changed direction, what was corrected, what was abandoned, what future agents should remember, and which failures should become evals.
+TreeTrace records the human steering layer: what was asked, what changed direction, what was corrected, what was abandoned, what was rejected, what future agents should remember, and which failures should become evals.
 
 ## Layering
 
@@ -11,7 +11,7 @@ TreeTrace records the human steering layer: what was asked, what changed directi
 | Code attribution | Agent Trace | which lines were AI-generated, by which model, linked to which conversation |
 | Runtime telemetry | OpenTelemetry `gen_ai` | per-call spans for operators |
 | Build integrity | SLSA / in-toto | signed provenance of build artifacts |
-| Human steering | TreeTrace | prompt lineage, corrections, abandoned paths, lessons, eval candidates |
+| Human steering | TreeTrace | prompt lineage, corrections, abandoned paths, rejections, lessons, eval candidates |
 
 Agent Trace answers "which code came from AI?" TreeTrace answers "how did the human have to steer the agent?"
 
@@ -19,15 +19,15 @@ Agent Trace answers "which code came from AI?" TreeTrace answers "how did the hu
 
 ```jsonc
 {
-  "schemaVersion": "0.2",
-  "generator": { "name": "treetrace", "version": "0.2.0", "url": "..." },
+  "schemaVersion": "0.3",
+  "generator": { "name": "treetrace", "version": "0.3.0", "url": "..." },
   "project": { "name": "...", "generatedAt": "ISO-8601", "sourceType": "claude-code-jsonl" },
-  "stats": { "prompts": 41, "sessions": 6, "days": 9, "corrections": 3 },
+  "stats": { "prompts": 41, "sessions": 6, "days": 9, "corrections": 3, "rejections": 4 },
   "analysis": {
-    "failureSignals": 7,
+    "failureSignals": 11,
     "correctionChains": 3,
-    "evalCandidates": 4,
-    "lessons": 4
+    "evalCandidates": 6,
+    "lessons": 7
   },
   "sessions": [ { "id": "...", "title": "...", "firstTs": "...", "lastTs": "...", "promptCount": 7 } ],
   "nodes": [ /* PromptNode */ ],
@@ -38,7 +38,7 @@ Agent Trace answers "which code came from AI?" TreeTrace answers "how did the hu
 }
 ```
 
-All v0.2 additions are optional and additive. Consumers that only understand v0.1 can keep reading `nodes` and `edges`.
+All v0.3 additions are optional and additive. Consumers that only understand v0.2 can keep reading `nodes` and `edges` and ignore `rejections`.
 
 ## PromptNode
 
@@ -47,7 +47,7 @@ All v0.2 additions are optional and additive. Consumers that only understand v0.
 | `id` | string | stable within the file (`node_001`, etc.) |
 | `parentId` | string \| null | lineage parent (null = root) |
 | `role` | `"user"` | reserved for future system/developer nodes |
-| `kind` | enum | `root`, `direction`, `correction`, `scope-change`, `checkpoint`, `question` |
+| `kind` | enum | `root`, `direction`, `correction`, `scope-change`, `checkpoint`, `question`, `rejection` |
 | `title` | string | first-sentence distillation |
 | `text` | string | full prompt text after redaction |
 | `status` | enum | `accepted`, `abandoned` |
@@ -58,7 +58,10 @@ All v0.2 additions are optional and additive. Consumers that only understand v0.
 | `failureSignals` | FailureSignal[] | optional v0.2 failure labels attached to this node |
 | `evalCandidate` | boolean | whether this node contributes to an eval candidate |
 | `lessonIds` | string[] | lessons derived from this node |
+| `rejections` | Rejection[] | optional v0.3 typed rejection/refusal/decline events captured on this turn |
 | `sourceEventIds` | string[] | local transcript record UUIDs; raw transcripts are never exported |
+
+The `rejection` kind (v0.3) is assigned to synthetic nodes that exist only to carry a rejection signal, e.g. a tool-result rejection that arrived before any human-typed prompt. Such nodes have empty `text`, a `title` derived from the rejection kind(s), and one or more entries in `rejections`.
 
 ## FailureSignal
 
@@ -86,8 +89,41 @@ Initial `type` values:
 - `format_violation`
 - `user_frustration`
 - `abandoned_path`
+- `user_rejected_action` (v0.3)
+- `tool_execution_failed` (v0.3)
+- `model_refused` (v0.3)
+- `permission_denied` (v0.3)
 
 The enum may gain values. Consumers should treat unknown values as advisory labels.
+
+## Rejection (v0.3)
+
+```jsonc
+{
+  "kind": "user_declined_tool",
+  "source": "tool_result",
+  "confidence": 1.0,
+  "toolUseId": "toolu_0123ABC",
+  "tool": "Bash",
+  "ts": "2026-06-18T12:34:56.789Z",
+  "evidence": "The user doesn't want to proceed with this tool use..."
+}
+```
+
+`kind` enum:
+
+- `user_declined_tool` - human rejected a proposed tool action (Claude Code canonical "user doesn't want to proceed" text)
+- `user_interrupt` - human pressed Esc / interrupt mid-response
+- `user_text_decline` - human typed an explicit decline (`no, don't`, `stop`, `cancel`)
+- `tool_execution_error` - tool ran and returned `is_error: true` for a non-decline reason
+- `permission_denied` - environment denied the action (`permission denied`, `EACCES`, `Operation cancelled`)
+- `model_refusal` - the model declined the request (`stop_reason: "refusal"` or refusal text)
+
+`source` enum: `tool_result`, `text`, `stop_reason`, `text_heuristic`.
+
+`confidence` follows the same banding as FailureSignal: 0.95+ verified, 0.8+ high, 0.65+ confirmed, else inferred.
+
+`evidence` is truncated and redacted; it carries enough context to disambiguate the rejection class. `null` when only the structured signal (e.g. `stop_reason`) is available.
 
 ## Edge
 
@@ -102,6 +138,7 @@ The enum may gain values. Consumers should treat unknown values as advisory labe
 - `expands`
 - `checkpoints`
 - `asks`
+- `rejects` (v0.3, from `kind: "rejection"`)
 
 ## CorrectionChain
 
@@ -160,6 +197,9 @@ Initial eval `type` values:
 - `privacy_boundary_preservation`
 - `handoff_quality`
 - `tool_choice_regression`
+- `tool_permission_regression` (v0.3)
+- `tool_error_recovery` (v0.3)
+- `refusal_handling` (v0.3)
 
 ## Separate Analysis Artifacts
 
