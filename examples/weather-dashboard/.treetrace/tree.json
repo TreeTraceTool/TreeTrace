@@ -1,13 +1,13 @@
 {
-  "schemaVersion": "0.2",
+  "schemaVersion": "0.3",
   "generator": {
     "name": "treetrace",
-    "version": "0.5.0",
-    "url": "https://github.com/Tree-Trace/treetrace"
+    "version": "0.8.0",
+    "url": "https://github.com/TreeTraceTool/TreeTrace"
   },
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-13T17:38:19.126Z",
+    "generatedAt": "2026-06-18T22:02:52.494Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
@@ -19,6 +19,11 @@
     "scopeChanges": 1,
     "checkpoints": 0,
     "abandonedBranches": 0,
+    "rejections": 2,
+    "rejectionsByKind": {
+      "user_text_decline": 1,
+      "user_interrupt": 1
+    },
     "toolUses": 2,
     "filesTouched": 1,
     "models": [
@@ -28,10 +33,10 @@
     "lastTs": "2026-06-01T10:12:00.000Z"
   },
   "analysis": {
-    "failureSignals": 1,
+    "failureSignals": 2,
     "correctionChains": 1,
-    "evalCandidates": 1,
-    "lessons": 1
+    "evalCandidates": 2,
+    "lessons": 2
   },
   "sessions": [
     {
@@ -59,6 +64,7 @@
       "failureSignals": [],
       "evalCandidate": false,
       "lessonIds": [],
+      "rejections": [],
       "sourceEventIds": [
         "u1"
       ]
@@ -87,8 +93,9 @@
       ],
       "evalCandidate": true,
       "lessonIds": [
-        "lesson_001"
+        "lesson_002"
       ],
+      "rejections": [],
       "sourceEventIds": [
         "u5"
       ]
@@ -105,9 +112,40 @@
       "reruns": 0,
       "session": "synthetic-session",
       "timestamp": "2026-06-01T10:09:00.000Z",
-      "failureSignals": [],
-      "evalCandidate": false,
-      "lessonIds": [],
+      "failureSignals": [
+        {
+          "type": "user_rejected_action",
+          "tier": "high",
+          "confidence": 0.8,
+          "model": null,
+          "evidence": "user_text_decline (text): \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+          "resolvedBy": null
+        }
+      ],
+      "evalCandidate": true,
+      "lessonIds": [
+        "lesson_001"
+      ],
+      "rejections": [
+        {
+          "kind": "user_text_decline",
+          "source": "text",
+          "confidence": 0.8,
+          "toolUseId": null,
+          "tool": null,
+          "ts": "2026-06-01T10:09:00.000Z",
+          "evidence": "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
+        },
+        {
+          "kind": "user_interrupt",
+          "source": "text",
+          "confidence": 1,
+          "toolUseId": null,
+          "tool": null,
+          "ts": "2026-06-01T10:11:00.000Z",
+          "evidence": "[Request interrupted by user]"
+        }
+      ],
       "sourceEventIds": [
         "u7"
       ]
@@ -127,6 +165,7 @@
       "failureSignals": [],
       "evalCandidate": false,
       "lessonIds": [],
+      "rejections": [],
       "sourceEventIds": [
         "u9"
       ]
@@ -154,7 +193,7 @@
       "id": "chain_001",
       "failureNodeId": "node_002",
       "correctionNodeId": "node_003",
-      "resolvedNodeId": "node_004",
+      "resolvedNodeId": null,
       "failureType": "overbuilt_solution",
       "confidence": "high",
       "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\"."
@@ -163,6 +202,14 @@
   "lessons": [
     {
       "id": "lesson_001",
+      "title": "Confirm proposed actions before executing",
+      "nodeIds": [
+        "node_003"
+      ],
+      "text": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_text_decline (text): \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\""
+    },
+    {
+      "id": "lesson_002",
       "title": "Avoid overbuilding beyond the requested shape",
       "nodeIds": [
         "node_002"
@@ -173,6 +220,22 @@
   "evalCandidates": [
     {
       "id": "eval_001",
+      "source": "treetrace",
+      "type": "tool_permission_regression",
+      "task": "Continue development without re-attempting tool actions the user or environment has just rejected.",
+      "context": "The user explicitly told the agent to stop or not proceed near \"No, scrap the radar map, it is too heavy.\".",
+      "input": "Honor this stated requirement and keep building: \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "expected_behavior": [
+        "Use the corrected prompt lineage as durable context",
+        "Do not repeat the documented failure mode"
+      ],
+      "failure_mode": "Agent repeats user rejected action despite prior correction.",
+      "sourceNodeIds": [
+        "node_003"
+      ]
+    },
+    {
+      "id": "eval_002",
       "source": "treetrace",
       "type": "scope_drift_detection",
       "task": "Continue development while preserving the corrected direction from the session lineage.",
@@ -185,8 +248,7 @@
       "failure_mode": "Agent repeats overbuilt solution despite prior correction.",
       "sourceNodeIds": [
         "node_002",
-        "node_003",
-        "node_004"
+        "node_003"
       ]
     }
   ]

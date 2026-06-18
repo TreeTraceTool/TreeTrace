@@ -1,194 +1,59 @@
 # TreeTrace Report - api-key-auth
 
-Generated: 2026-06-13T17:43:29.639Z
-
-This is the human-readable rollup. Keep the split `.treetrace/` artifacts for agents, CI, eval harnesses, and other tools.
-
-## Read order
-
-1. `TREETRACE_REPORT.md` - human rollup and terminal-friendly report.
-2. `PROMPT_TREE.md` - detailed prompt lineage and reusable prompt pack.
-3. `.treetrace/lessons.md` - reusable correction memory.
-4. `.treetrace/agent-memory.md` - compact memory for the next coding agent.
-5. `.treetrace/tree.json`, `failures.json`, and `evals.jsonl` - machine-readable data.
+Generated: 2026-06-18T22:04:19.904Z
 
 ## Session summary
 
-- Prompts: 4
-- Sessions: 1
-- Active span: 1 day
+- Prompts: 4  Sessions: 1  Span: 1 day  Tool calls: 4  Files touched: 2
+- Failure signals: 5 (verified 0, high 2, confirmed 2, inferred 1)
 - Corrections: 1
-- Tool calls: 4
-- Files touched: 2
-- Failure signals: 3 (verified 0, high 1, confirmed 2, inferred 0)
+- Rejections: 1 (user text decline: 1)
 - Models seen: assistant-model
-- Eval candidates: 3
-- Lessons: 3
+- Eval candidates: 4
+- Lessons: 4
 
 ## Output map
 
-| File | Use it for |
-|------|------------|
-| `TREETRACE_REPORT.md` | Human review, terminal output, quick context. |
-| `PROMPT_TREE.md` | Full lineage narrative and replayable prompt pack. |
-| `.treetrace/tree.json` | Canonical schema for tools and integrations. |
-| `.treetrace/failures.json` | Failure labels, evidence, correction chains. |
-| `.treetrace/hallucinations.json` | Referenced files, paths, imports, or packages that do not exist in the working tree. |
-| `.treetrace/lessons.md` | Human-readable lessons. |
-| `.treetrace/evals.jsonl` | Eval/regression cases; not meant to be pretty. |
-| `.treetrace/agent-memory.md` | Short memory pack for Codex, Claude Code, Cursor, or another agent. |
+| File | Purpose |
+|------|---------|
+| `TREETRACE_REPORT.md` | this file |
+| `PROMPT_TREE.md` | prompt lineage + replay pack |
+| `.treetrace/tree.json` | canonical schema |
+| `.treetrace/failures.json` | labels + correction chains |
+| `.treetrace/rejections.json` | typed rejections/refusals/declines (v0.3) |
+| `.treetrace/hallucinations.json` | unresolved references |
+| `.treetrace/lessons.md` | correction memory |
+| `.treetrace/evals.jsonl` | regression eval cases |
+| `.treetrace/agent-memory.md` | next-agent memory pack |
 
 ## Failure signals
 
+- security_or_privacy_risk: 2
 - dependency_or_environment_mismatch: 1
-- security_or_privacy_risk: 1
 - user_frustration: 1
+- user_rejected_action: 1
 
-- failure_001 (dependency_or_environment_mismatch, confirmed, 82%, assistant-model): A possible dependency or environment mismatch occurred near "Add API key authentication to the /admin route in our Express app."; corrected by "No, do not hardcode the secret in the source.".
-- failure_002 (security_or_privacy_risk, high, 84%, assistant-model): An agent action touched auth, secrets, or access control near "The auth tests are failing.".
-- failure_003 (user_frustration, confirmed, 82%, assistant-model): User frustration signaled that the prior path near "Add API key authentication to the /admin route in our Express app." was not meeting expectations.
+- failure_001 [node_002] (user_rejected_action, high, 80%, assistant-model): The user explicitly told the agent to stop or not proceed near "No, do not hardcode the secret in the source.". Evidence: user_text_decline (text): "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
+- failure_002 [node_001] (security_or_privacy_risk, inferred, 62%, assistant-model): A human security correction was raised near "Add API key authentication to the /admin route in our Express app." with no matching action-level signal. Evidence: Human flagged a security concern about a prior action with no security label [signal: human security correction]: "No, do not hardcode the secret in the source. Read the API key f...
+- failure_003 [node_001] (dependency_or_environment_mismatch, confirmed, 82%, assistant-model): A possible dependency or environment mismatch occurred near "Add API key authentication to the /admin route in our Express app."; corrected by "No, do not hardcode the secret in the source.". Evidence: User said: "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
+- failure_004 [node_003] (security_or_privacy_risk, high, 84%, assistant-model): An agent action touched auth, secrets, or access control near "The auth tests are failing.". Evidence: Agent action touched risky-command [signals: risky command]: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force"
+- failure_005 [node_001] (user_frustration, confirmed, 82%, assistant-model): User frustration signaled that the prior path near "Add API key authentication to the /admin route in our Express app." was not meeting expectations. Evidence: User said: "Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key."
 
 ## Security audit trail
 
-Every time an agent touched auth, secrets, or access control in this session:
+- (high) [node_003] Agent action touched risky-command [signals: risky command]: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force" (assistant-model)
+- (stated intent) [node_001] Human flagged a security concern about a prior action with no security label [signal: human security correction]: "No, do not hardcode the secret in the source. Read the API key from an environment variable instead." (assistant-model)
 
-- (high) Agent action touched risky-command: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force" (assistant-model)
+## Rejections
 
-## Handoff brief
+Typed rejection / refusal / decline events captured on the session. Each one is also surfaced as a failure signal of the mapped type.
 
-You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (4 prompts, 1 sessions). Read it fully before acting.
+- Total: 1 — user text decline (1)
 
-#### Original goal
+- (user_text_decline, 80%) [node_002] — No, do not hardcode the secret in the source. Read the API key from an environment variable instead.
 
-Add API key authentication to the /admin route in our Express app. Keep it simple.
+## Artifacts
 
-#### Where things stand
-
-
-Most recent accepted direction: Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.
-
-#### Accepted decisions (in order)
-
-1. The auth tests are failing. Just skip the auth tests for now so we can ship.
-2. Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.
-
-#### Constraints learned the hard way
-
-These corrections were issued during the build. Do not repeat the mistakes they fixed:
-
-- No, do not hardcode the secret in the source. Read the API key from an environment variable instead.
-
-#### Agent memory lessons
-
-- Future agents should validate environment assumptions before choosing dependencies or runtime paths. Specifically: User said: "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
-- Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command: "git commit -am "wip: api key auth" --no-verify && git push --force"
-- Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course. Specifically: User said: "Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key."
-
-#### First task
-
-Confirm you understand the goal, the accepted decisions, and the constraints above, then ask the user what to tackle next (or continue the most recent accepted direction if instructed to proceed autonomously).
-
-## Agent memory
-
-Project: api-key-auth
-
-#### Constraints the user enforced
-
-- Do not hardcode the secret in the source
-- Keep it simple
-
-#### Lessons from this lineage
-
-- Future agents should validate environment assumptions before choosing dependencies or runtime paths. Specifically: User said: "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
-- Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force"
-- Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course. Specifically: User said: "Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key."
-
-#### Known bad paths
-
-- No abandoned paths were detected in this session.
-
-#### Security-sensitive actions
-
-Treat these as durable warnings; re-verify before touching the same surfaces:
-- (high) Agent action touched risky-command: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force"
-
-#### Preferred next work
-
-- Continue the most recent accepted direction: Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.
-- Keep this correction satisfied: No, do not hardcode the secret in the source.
-
-## Lessons
-
-#### 1. Respect the local environment
-
-Future agents should validate environment assumptions before choosing dependencies or runtime paths. Specifically: User said: "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
-
-Source nodes: node_001
-
-#### 2. Treat privacy boundaries as product requirements
-
-Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command: "git commit -am "wip: api key auth" --no-verify &amp;&amp; git push --force"
-
-Source nodes: node_003
-
-#### 3. Escalate when user frustration appears
-
-Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course. Specifically: User said: "Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key."
-
-Source nodes: node_001
-
-## Prompt tree
-
-> **4 prompts** · **1 session** · **1 day** · 1 correction · 4 tool calls · 2 files touched
->
-> The prompt lineage that built this project, extracted from real sessions, curated and redacted by the author, generated by [treetrace](https://github.com/Tree-Trace/treetrace).
-
-#### Goal
-
-> Add API key authentication to the /admin route in our Express app. Keep it simple.
-
-#### The Path
-
-`⬢` root · `→` direction · `↩` correction
-
-- `⬢` **Add API key authentication to the /admin route in our Express app.** <sub>(new session, 2026-06-02)</sub>
-  <details><summary>full prompt</summary>
-
-  > Add API key authentication to the /admin route in our Express app. Keep it simple.
-  </details>
-- `↩` No, do not hardcode the secret in the source.
-  <details><summary>full prompt</summary>
-
-  > No, do not hardcode the secret in the source. Read the API key from an environment variable instead.
-  </details>
-- `→` The auth tests are failing.
-  <details><summary>full prompt</summary>
-
-  > The auth tests are failing. Just skip the auth tests for now so we can ship.
-  </details>
-- `→` Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.
-
-#### Course corrections & dead ends
-
-**1 correction along the way:**
-
-- ↩ No, do not hardcode the secret in the source.
-
-#### Reusable Prompt Pack
-
-A distilled, replayable version of the accepted path. Paste into a fresh agent to rebuild something like this:
-
-```text
-1. Add API key authentication to the /admin route in our Express app. Keep it simple.
-   (constraint learned along the way: No, do not hardcode the secret in the source. Read the API key from an environment variable instead.)
-2. The auth tests are failing. Just skip the auth tests for now so we can ship.
-3. Here is my test key [REDACTED:anthropic-key], confirm the admin route rejects a bad key.
-```
-
+See: `PROMPT_TREE.md` · `.treetrace/lessons.md` · `.treetrace/agent-memory.md` · handoff: run `treetrace --handoff`
 ---
-
-*Generated by [treetrace](https://github.com/Tree-Trace/treetrace) · v0.5.0 · 4 prompts across 1 session · machine-readable lineage in `.treetrace/tree.json` ([schema](https://github.com/Tree-Trace/treetrace/blob/main/SCHEMA.md))*
-
----
-
-Generated by [treetrace](https://github.com/Tree-Trace/treetrace) v0.5.0.
+Generated by [treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.8.0.

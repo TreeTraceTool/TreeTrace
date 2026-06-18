@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "0.3",
+  "project": {
+    "name": "rejections",
+    "generatedAt": "2026-06-18T22:02:52.475Z"
+  },
+  "summary": {
+    "total": 7,
+    "byKind": {
+      "user_declined_tool": 1,
+      "user_interrupt": 1,
+      "tool_execution_error": 1,
+      "permission_denied": 1,
+      "user_text_decline": 1,
+      "model_refusal": 2
+    }
+  },
+  "rejections": [
+    {
+      "nodeId": "node_001",
+      "kind": "user_declined_tool",
+      "source": "tool_result",
+      "confidence": 1,
+      "toolUseId": "toolu-0001",
+      "tool": null,
+      "ts": "2026-06-18T10:00:10.000Z",
+      "evidence": "The user doesn't want to proceed with this tool use. The user wants you to answer a different question instead."
+    },
+    {
+      "nodeId": "node_002",
+      "kind": "user_interrupt",
+      "source": "text",
+      "confidence": 1,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-18T10:00:25.000Z",
+      "evidence": "[Request interrupted by user]"
+    },
+    {
+      "nodeId": "node_003",
+      "kind": "tool_execution_error",
+      "source": "tool_result",
+      "confidence": 0.9,
+      "toolUseId": "toolu-0003",
+      "tool": null,
+      "ts": "2026-06-18T10:00:40.000Z",
+      "evidence": "mkdir: cannot create directory '/root/.config/forbidden': File exists"
+    },
+    {
+      "nodeId": "node_003",
+      "kind": "permission_denied",
+      "source": "tool_result",
+      "confidence": 0.85,
+      "toolUseId": "toolu-0004",
+      "tool": null,
+      "ts": "2026-06-18T10:00:50.000Z",
+      "evidence": "sudo: permission denied; user is not in the sudoers file. This incident will be reported."
+    },
+    {
+      "nodeId": "node_004",
+      "kind": "user_text_decline",
+      "source": "text",
+      "confidence": 0.8,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-18T10:00:55.000Z",
+      "evidence": "stop, don't do that"
+    },
+    {
+      "nodeId": "node_004",
+      "kind": "model_refusal",
+      "source": "stop_reason",
+      "confidence": 0.95,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-18T10:01:00.000Z",
+      "evidence": null
+    },
+    {
+      "nodeId": "node_005",
+      "kind": "model_refusal",
+      "source": "text_heuristic",
+      "confidence": 0.7,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-18T10:01:10.000Z",
+      "evidence": "I can't help with that request. It would require me to describe how to bypass filesystem permissions, which I am programmed not to do."
+    }
+  ]
+}

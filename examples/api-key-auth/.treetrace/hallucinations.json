@@ -1,8 +1,8 @@
 {
-  "schemaVersion": "0.2",
+  "schemaVersion": "0.3",
   "project": {
     "name": "api-key-auth",
-    "generatedAt": "2026-06-13T17:43:29.893Z"
+    "generatedAt": "2026-06-18T22:04:21.390Z"
   },
   "verifiedAgainstWorkingTree": true,
   "manifestSeen": true,

@@ -1,26 +1,14 @@
-# TreeTrace Agent Memory
-
 Project: weather-dashboard
 
-## Constraints the user enforced
-
+## Constraints
 - No, scrap the radar map, it is too heavy
 - Keep the page lightweight, just the forecast cards
 - Keep it a single static page
 
-## Lessons from this lineage
+## Lessons
+- Confirm proposed actions before executing: user_text_decline (text): "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards." [node_003]
+- Avoid overbuilding beyond the requested shape: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards." [node_002]
 
-- Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
-
-## Known bad paths
-
-- No abandoned paths were detected in this session.
-
-## Security-sensitive actions
-
-- No security-sensitive actions or intents were detected in this session.
-
-## Preferred next work
-
-- Continue the most recent accepted direction: Actually wait - also add a settings panel so the user can switch cities.
-- Keep this correction satisfied: No, scrap the radar map, it is too heavy.
+## Next
+- Continue: Actually wait - also add a settings panel so the user can switch cities.
+- Constraint: No, scrap the radar map, it is too heavy.

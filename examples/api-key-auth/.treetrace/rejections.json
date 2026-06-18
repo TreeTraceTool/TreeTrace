@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "0.3",
+  "project": {
+    "name": "api-key-auth",
+    "generatedAt": "2026-06-18T22:04:19.904Z"
+  },
+  "summary": {
+    "total": 1,
+    "byKind": {
+      "user_text_decline": 1
+    }
+  },
+  "rejections": [
+    {
+      "nodeId": "node_002",
+      "kind": "user_text_decline",
+      "source": "text",
+      "confidence": 0.8,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-02T09:02:00.000Z",
+      "evidence": "No, do not hardcode the secret in the source. Read the API key from an environment variable instead."
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "0.3",
+  "project": {
+    "name": "rejections",
+    "generatedAt": "2026-06-18T22:04:20.037Z"
+  },
+  "verifiedAgainstWorkingTree": true,
+  "manifestSeen": false,
+  "summary": {
+    "total": 1,
+    "byCategory": {
+      "hallucinated_file_or_path": 1,
+      "hallucinated_import_or_package": 0
+    }
+  },
+  "hallucinations": [
+    {
+      "category": "hallucinated_file_or_path",
+      "reference": "README",
+      "nodeId": "node_002",
+      "evidence": "Referenced \"README\" which does not exist in the working tree and was not created during the session.",
+      "evalCandidate": {
+        "type": "reference_existence_check",
+        "task": "Verify a file or path exists in the working tree before editing or relying on it.",
+        "target": "README"
+      }
+    }
+  ],
+  "note": "File and path existence and import and package declaration are checked deterministically against the working tree and manifests. Per-symbol and per-API resolution inside a module is not attempted."
+}

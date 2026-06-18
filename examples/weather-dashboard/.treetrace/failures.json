@@ -1,19 +1,23 @@
 {
-  "schemaVersion": "0.2",
+  "schemaVersion": "0.3",
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-13T17:38:19.126Z"
+    "generatedAt": "2026-06-18T22:02:52.494Z"
   },
   "summary": {
-    "totalFailureSignals": 1,
+    "totalFailureSignals": 2,
     "topFailureTypes": [
       {
         "type": "overbuilt_solution",
         "count": 1
+      },
+      {
+        "type": "user_rejected_action",
+        "count": 1
       }
     ],
     "tierCounts": {
-      "verified": 0,
+      "verified": 1,
       "high": 0,
       "confirmed": 1,
       "inferred": 0
@@ -23,12 +27,25 @@
     ],
     "thinkingBlocks": 0,
     "correctionChains": 1,
-    "evalCandidates": 1,
-    "lessons": 1
+    "evalCandidates": 2,
+    "lessons": 2
   },
   "failures": [
     {
       "id": "failure_001",
+      "type": "user_rejected_action",
+      "tier": "verified",
+      "confidence": 1,
+      "model": null,
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": null,
+      "summary": "The user explicitly told the agent to stop or not proceed near \"No, scrap the radar map, it is too heavy.\".",
+      "evidence": "user_text_decline (text): \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "lesson": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_text_decline (text): \"No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_002",
       "type": "overbuilt_solution",
       "tier": "confirmed",
       "confidence": 0.82,
@@ -46,7 +63,7 @@
       "id": "chain_001",
       "failureNodeId": "node_002",
       "correctionNodeId": "node_003",
-      "resolvedNodeId": "node_004",
+      "resolvedNodeId": null,
       "failureType": "overbuilt_solution",
       "confidence": "high",
       "summary": "The work appears to have overbuilt the requested shape near \"Try using leaflet for an interactive radar map layer on top of the forecast.\"; corrected by \"No, scrap the radar map, it is too heavy.\"."

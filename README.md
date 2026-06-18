@@ -107,6 +107,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `PROMPT_TREE.md` | Human-readable narrative of the build path |
 | `.treetrace/tree.json` | Canonical machine-readable lineage schema |
 | `.treetrace/failures.json` | Failure signals, correction chains, and summaries |
+| `.treetrace/rejections.json` | Typed rejection, refusal, decline, tool-error, and permission-denial events |
 | `.treetrace/hallucinations.json` | Files, paths, imports, and packages the agent referenced that do not exist in the working tree |
 | `.treetrace/lessons.md` | Human-readable lessons for future work |
 | `.treetrace/evals.jsonl` | Generic model-agnostic eval cases |
@@ -122,7 +123,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 1. **Discovers local transcripts.** Claude Code session files are found automatically from `~/.claude/projects/...`; plain transcripts can be imported with `--file` or `--stdin`.
 2. **Extracts prompt lineage.** Tool noise, slash-command wrappers, sidechain chatter, duplicate resends, and "continue" nudges are filtered or folded.
 3. **Builds a fork-aware tree.** Corrections, scope changes, checkpoints, questions, abandoned branches, and accepted paths are derived from prompt topology and user text.
-4. **Analyzes failures and corrections.** TreeTrace adds failure signals, correction chains, lessons, and eval candidates using transparent heuristics.
+4. **Analyzes failures, rejections, and corrections.** TreeTrace adds failure signals, typed rejection/refusal events, correction chains, lessons, and eval candidates using transparent heuristics.
 5. **Exports regression artifacts.** JSON, Markdown, JSONL, and handoff memory are written locally for agents, CI, eval harnesses, and humans.
 6. **Gates every export with redaction.** Detected secrets must be resolved before anything is written; non-interactive runs redact automatically and shadow-scan rendered output.
 
@@ -142,6 +143,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 | `npx treetrace --from chatgpt --file conversations.json` | Import another tool's export with an explicit format |
 | `npx treetrace --stdin < chat.txt` | Parse a pasted `User:` / `Assistant:` transcript |
 | `npx treetrace --failures` | Write and print `.treetrace/failures.json` |
+| `npx treetrace --rejections` | Write and print `.treetrace/rejections.json` |
 | `npx treetrace --lessons` | Write and print `.treetrace/lessons.md` |
 | `npx treetrace --evals` | Write and print `.treetrace/evals.jsonl` |
 | `npx treetrace --memory` | Write and print `.treetrace/agent-memory.md` |
@@ -170,6 +172,19 @@ If you see a file literally named `output`, that usually came from `--out output
 
 The report goes to stdout and the run writes `.treetrace/hallucinations.json`. Both pass the redaction shadow scan before anything is printed or written. See a real one: [examples/api-key-auth/SECURITY_REPORT.md](examples/api-key-auth/SECURITY_REPORT.md).
 
+## Rejections and refusals
+
+`treetrace --rejections` writes `.treetrace/rejections.json`, a timestamp-sorted ledger of typed human and environment stop signals. Native Claude Code JSONL capture currently recognizes:
+
+- `user_declined_tool` - the human declined a proposed tool use
+- `user_interrupt` - the human interrupted the agent mid-response
+- `user_text_decline` - the human typed a decline such as "stop, don't do that"
+- `tool_execution_error` - a tool result returned an execution error
+- `permission_denied` - the environment denied access or permissions
+- `model_refusal` - the model refused the request
+
+Each entry includes the source node id, kind, source, confidence, timestamp, optional tool-use id, and redacted evidence. Rejections also surface as failure signals, lessons, and eval candidates, so a refused or rejected path becomes part of the same failure-to-eval-to-handoff loop as security and scope corrections.
+
 <details>
 <summary><b>Deterministic hallucination detection</b></summary>
 
@@ -193,7 +208,7 @@ This is honest about its limits. File, path, import, and package existence are s
 
 TreeTrace does not claim to perfectly understand every session. The first analysis pass is heuristic and explainable: every failure signal includes a type, confidence score, evidence text, and source node IDs.
 
-Initial failure types include `ignored_constraint`, `misunderstood_goal`, `scope_drift`, `wrong_tool_choice`, `hallucinated_file_or_api`, `repeated_failed_fix`, `overbuilt_solution`, `underbuilt_solution`, `security_or_privacy_risk`, `dependency_or_environment_mismatch`, `format_violation`, `user_frustration`, and `abandoned_path`.
+Initial failure types include `ignored_constraint`, `misunderstood_goal`, `scope_drift`, `wrong_tool_choice`, `hallucinated_file_or_api`, `repeated_failed_fix`, `overbuilt_solution`, `underbuilt_solution`, `security_or_privacy_risk`, `dependency_or_environment_mismatch`, `format_violation`, `user_frustration`, `abandoned_path`, `user_rejected_action`, `tool_execution_failed`, `model_refused`, and `permission_denied`.
 
 The goal is not judgment. The goal is regression memory: identify what future agents should preserve, avoid, or test.
 
@@ -211,12 +226,14 @@ The format is intentionally model-agnostic. Adapters for promptfoo, OpenAI Evals
 
 ## MCP server
 
-`treetrace mcp` (or `treetrace --mcp`) starts a Model Context Protocol server over stdio. It speaks JSON-RPC 2.0, is hand-rolled with no dependencies, and implements `initialize`, `tools/list`, and `tools/call`. It exposes four read-only tools, each reusing existing functionality:
+`treetrace mcp` (or `treetrace --mcp`) starts a Model Context Protocol server over stdio. It speaks JSON-RPC 2.0, is hand-rolled with no dependencies, and implements `initialize`, `tools/list`, and `tools/call`. It exposes six read-only tools, each reusing existing functionality:
 
 - `handoff` - the continuation brief for the next agent
 - `lessons` - accepted constraints and repeated corrections
 - `security_summary` - evidence-backed security-sensitive touches
 - `eval_candidates` - compact regression cases
+- `tree` - the canonical prompt lineage JSON
+- `rejections_summary` - typed rejection, refusal, decline, tool-error, and permission-denial events
 
 No tool mutates files, runs shell, reaches the network, or requires authentication. Every returned text passes the same redaction shadow scan as the file exports. Point it at a project with `--dir`, or import a transcript with `--file`. The MCP server uses stdin for its JSON-RPC transport, so `--stdin` transcript paste is not available in MCP mode; use `--file` instead.
 
@@ -263,14 +280,15 @@ Verified means the adapter was validated against real session or real published 
 
 ## Schema
 
-`.treetrace/tree.json` uses the open TreeTrace v0.2 schema documented in [SCHEMA.md](SCHEMA.md). It is designed to compose with Agent Trace: Agent Trace can describe which lines were AI-generated, while TreeTrace describes the human instruction lineage that shaped the build. Consumers should ignore unknown fields; failure signals, correction chains, lessons, and eval candidates are additive.
+`.treetrace/tree.json` uses the open TreeTrace v0.3 schema documented in [SCHEMA.md](SCHEMA.md). It is designed to compose with Agent Trace: Agent Trace can describe which lines were AI-generated, while TreeTrace describes the human instruction lineage that shaped the build. Consumers should ignore unknown fields; failure signals, rejection events, correction chains, lessons, and eval candidates are additive.
 
 ## Examples
 
-See [examples/](examples/) for two full sets of generated artifacts, produced by running the CLI with no hand-editing:
+See [examples/](examples/) for generated artifacts produced by running the CLI with no hand-editing:
 
 - [examples/weather-dashboard](examples/weather-dashboard) shows lineage and the redaction gate on a clean session.
-- [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md) and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.
+- [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md), [rejection capture](examples/api-key-auth/.treetrace/rejections.json), and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.
+- [examples/rejections](examples/rejections) shows typed decline, interrupt, tool-error, permission-denial, and model-refusal capture.
 
 ## Product boundaries
 

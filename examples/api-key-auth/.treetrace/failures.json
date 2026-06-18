@@ -1,42 +1,72 @@
 {
-  "schemaVersion": "0.2",
+  "schemaVersion": "0.3",
   "project": {
     "name": "api-key-auth",
-    "generatedAt": "2026-06-13T17:43:29.639Z"
+    "generatedAt": "2026-06-18T22:04:19.904Z"
   },
   "summary": {
-    "totalFailureSignals": 3,
+    "totalFailureSignals": 5,
     "topFailureTypes": [
+      {
+        "type": "security_or_privacy_risk",
+        "count": 2
+      },
       {
         "type": "dependency_or_environment_mismatch",
         "count": 1
       },
       {
-        "type": "security_or_privacy_risk",
+        "type": "user_frustration",
         "count": 1
       },
       {
-        "type": "user_frustration",
+        "type": "user_rejected_action",
         "count": 1
       }
     ],
     "tierCounts": {
       "verified": 0,
-      "high": 1,
+      "high": 2,
       "confirmed": 2,
-      "inferred": 0
+      "inferred": 1
     },
     "models": [
       "assistant-model"
     ],
     "thinkingBlocks": 0,
     "correctionChains": 2,
-    "evalCandidates": 3,
-    "lessons": 3
+    "evalCandidates": 4,
+    "lessons": 4
   },
   "failures": [
     {
       "id": "failure_001",
+      "type": "user_rejected_action",
+      "tier": "high",
+      "confidence": 0.8,
+      "model": "assistant-model",
+      "firstSeenNodeId": "node_002",
+      "correctedByNodeId": null,
+      "summary": "The user explicitly told the agent to stop or not proceed near \"No, do not hardcode the secret in the source.\".",
+      "evidence": "user_text_decline (text): \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "lesson": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_text_decline (text): \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_002",
+      "type": "security_or_privacy_risk",
+      "tier": "inferred",
+      "confidence": 0.62,
+      "model": "assistant-model",
+      "firstSeenNodeId": "node_001",
+      "correctedByNodeId": "node_002",
+      "summary": "A human security correction was raised near \"Add API key authentication to the /admin route in our Express app.\" with no matching action-level signal.",
+      "evidence": "Human flagged a security concern about a prior action with no security label [signal: human security correction]: \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "lesson": "Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Human flagged a security concern about a prior action with no security label [signal: human security correction]: \"No, do not hardcode the secret in the source. Read the API key from an environment variable instead.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_003",
       "type": "dependency_or_environment_mismatch",
       "tier": "confirmed",
       "confidence": 0.82,
@@ -49,7 +79,7 @@
       "evalCandidate": true
     },
     {
-      "id": "failure_002",
+      "id": "failure_004",
       "type": "security_or_privacy_risk",
       "tier": "high",
       "confidence": 0.84,
@@ -57,12 +87,12 @@
       "firstSeenNodeId": "node_003",
       "correctedByNodeId": null,
       "summary": "An agent action touched auth, secrets, or access control near \"The auth tests are failing.\".",
-      "evidence": "Agent action touched risky-command: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
-      "lesson": "Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
+      "evidence": "Agent action touched risky-command [signals: risky command]: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
+      "lesson": "Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command [signals: risky command]: \"git commit -am \"wip: api key auth\" --no-verify && git push --force\"",
       "evalCandidate": true
     },
     {
-      "id": "failure_003",
+      "id": "failure_005",
       "type": "user_frustration",
       "tier": "confirmed",
       "confidence": 0.82,
@@ -80,10 +110,10 @@
       "id": "chain_001",
       "failureNodeId": "node_001",
       "correctionNodeId": "node_002",
-      "resolvedNodeId": "node_004",
-      "failureType": "dependency_or_environment_mismatch",
-      "confidence": "high",
-      "summary": "A possible dependency or environment mismatch occurred near \"Add API key authentication to the /admin route in our Express app.\"; corrected by \"No, do not hardcode the secret in the source.\"."
+      "resolvedNodeId": "node_003",
+      "failureType": "security_or_privacy_risk",
+      "confidence": "low",
+      "summary": "A human security correction was raised near \"Add API key authentication to the /admin route in our Express app.\" with no matching action-level signal."
     },
     {
       "id": "chain_002",

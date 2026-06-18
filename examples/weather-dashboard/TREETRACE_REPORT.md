@@ -1,168 +1,50 @@
 # TreeTrace Report - weather-dashboard
 
-Generated: 2026-06-13T17:38:19.126Z
-
-This is the human-readable rollup. Keep the split `.treetrace/` artifacts for agents, CI, eval harnesses, and other tools.
-
-## Read order
-
-1. `TREETRACE_REPORT.md` - human rollup and terminal-friendly report.
-2. `PROMPT_TREE.md` - detailed prompt lineage and reusable prompt pack.
-3. `.treetrace/lessons.md` - reusable correction memory.
-4. `.treetrace/agent-memory.md` - compact memory for the next coding agent.
-5. `.treetrace/tree.json`, `failures.json`, and `evals.jsonl` - machine-readable data.
+Generated: 2026-06-18T22:02:52.494Z
 
 ## Session summary
 
-- Prompts: 4 (merged from 5 raw turns; 1 continuation or duplicate turn folded in)
-- Sessions: 1
-- Active span: 1 day
+- Prompts: 4 (from 5 raw turns)  Sessions: 1  Span: 1 day  Tool calls: 2  Files touched: 1
+- Failure signals: 2 (verified 1, high 0, confirmed 1, inferred 0)
 - Corrections: 1
-- Tool calls: 2
-- Files touched: 1
-- Failure signals: 1 (verified 0, high 0, confirmed 1, inferred 0)
+- Rejections: 2 (user text decline: 1, user interrupt: 1)
 - Models seen: assistant-model
-- Eval candidates: 1
-- Lessons: 1
+- Eval candidates: 2
+- Lessons: 2
 
 ## Output map
 
-| File | Use it for |
-|------|------------|
-| `TREETRACE_REPORT.md` | Human review, terminal output, quick context. |
-| `PROMPT_TREE.md` | Full lineage narrative and replayable prompt pack. |
-| `.treetrace/tree.json` | Canonical schema for tools and integrations. |
-| `.treetrace/failures.json` | Failure labels, evidence, correction chains. |
-| `.treetrace/hallucinations.json` | Referenced files, paths, imports, or packages that do not exist in the working tree. |
-| `.treetrace/lessons.md` | Human-readable lessons. |
-| `.treetrace/evals.jsonl` | Eval/regression cases; not meant to be pretty. |
-| `.treetrace/agent-memory.md` | Short memory pack for Codex, Claude Code, Cursor, or another agent. |
+| File | Purpose |
+|------|---------|
+| `TREETRACE_REPORT.md` | this file |
+| `PROMPT_TREE.md` | prompt lineage + replay pack |
+| `.treetrace/tree.json` | canonical schema |
+| `.treetrace/failures.json` | labels + correction chains |
+| `.treetrace/rejections.json` | typed rejections/refusals/declines (v0.3) |
+| `.treetrace/hallucinations.json` | unresolved references |
+| `.treetrace/lessons.md` | correction memory |
+| `.treetrace/evals.jsonl` | regression eval cases |
+| `.treetrace/agent-memory.md` | next-agent memory pack |
 
 ## Failure signals
 
 - overbuilt_solution: 1
+- user_rejected_action: 1
 
-- failure_001 (overbuilt_solution, confirmed, 82%, assistant-model): The work appears to have overbuilt the requested shape near "Try using leaflet for an interactive radar map layer on top of the forecast."; corrected by "No, scrap the radar map, it is too heavy.".
+- failure_001 [node_003] (user_rejected_action, verified, 100%): The user explicitly told the agent to stop or not proceed near "No, scrap the radar map, it is too heavy.". Evidence: user_text_decline (text): "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
+- failure_002 [node_002] (overbuilt_solution, confirmed, 82%, assistant-model): The work appears to have overbuilt the requested shape near "Try using leaflet for an interactive radar map layer on top of the forecast."; corrected by "No, scrap the radar map, it is too heavy.". Evidence: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
 
-## Handoff brief
+## Rejections
 
-You are taking over an AI-assisted project. This brief was distilled from the real prompt lineage (4 prompts, 1 sessions). Read it fully before acting.
+Typed rejection / refusal / decline events captured on the session. Each one is also surfaced as a failure signal of the mapped type.
 
-#### Original goal
+- Total: 2 — user text decline (1), user interrupt (1)
 
-Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
+- (user_text_decline, 80%) [node_003] — No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.
+- (user_interrupt, 100%) [node_003] — [Request interrupted by user]
 
-#### Where things stand
+## Artifacts
 
-
-Most recent accepted direction: Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
-
-#### Accepted decisions (in order)
-
-1. Try using leaflet for an interactive radar map layer on top of the forecast.
-2. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
-
-#### Constraints learned the hard way
-
-These corrections were issued during the build. Do not repeat the mistakes they fixed:
-
-- No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.
-
-#### Agent memory lessons
-
-- Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
-
-#### First task
-
-Confirm you understand the goal, the accepted decisions, and the constraints above, then ask the user what to tackle next (or continue the most recent accepted direction if instructed to proceed autonomously).
-
-## Agent memory
-
-Project: weather-dashboard
-
-#### Constraints the user enforced
-
-- No, scrap the radar map, it is too heavy
-- Keep the page lightweight, just the forecast cards
-- Keep it a single static page
-
-#### Lessons from this lineage
-
-- Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
-
-#### Known bad paths
-
-- No abandoned paths were detected in this session.
-
-#### Security-sensitive actions
-
-- No security-sensitive actions or intents were detected in this session.
-
-#### Preferred next work
-
-- Continue the most recent accepted direction: Actually wait - also add a settings panel so the user can switch cities.
-- Keep this correction satisfied: No, scrap the radar map, it is too heavy.
-
-## Lessons
-
-#### 1. Avoid overbuilding beyond the requested shape
-
-Future agents should prefer the smallest implementation that satisfies the corrected product direction. Specifically: User said: "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
-
-Source nodes: node_002
-
-## Prompt tree
-
-> **4 prompts** · **1 session** · **1 day** · 1 correction · 1 scope change · 2 tool calls · 1 file touched
->
-> The prompt lineage that built this project, extracted from real sessions, curated and redacted by the author, generated by [treetrace](https://github.com/Tree-Trace/treetrace).
-
-#### Goal
-
-> Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
-
-#### The Path
-
-`⬢` root · `→` direction · `↩` correction · `⚑` scope change
-
-- `⬢` **Build a weather dashboard web app that shows the forecast for Denver using the NWS API.** <sub>(new session, 2026-06-01)</sub>
-  <details><summary>full prompt</summary>
-
-  > Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
-  </details>
-- `→` Try using leaflet for an interactive radar map layer on top of the forecast.
-- `↩` No, scrap the radar map, it is too heavy.
-  <details><summary>full prompt</summary>
-
-  > No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.
-  </details>
-- `⚑` Actually wait - also add a settings panel so the user can switch cities.
-  <details><summary>full prompt</summary>
-
-  > Actually wait -  also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
-  </details>
-
-#### Course corrections & dead ends
-
-**1 correction along the way:**
-
-- ↩ No, scrap the radar map, it is too heavy.
-
-#### Reusable Prompt Pack
-
-A distilled, replayable version of the accepted path. Paste into a fresh agent to rebuild something like this:
-
-```text
-1. Build a weather dashboard web app that shows the forecast for Denver using the NWS API. Keep it a single static page.
-2. Try using leaflet for an interactive radar map layer on top of the forecast.
-   (constraint learned along the way: No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards.)
-3. Actually wait - also add a settings panel so the user can switch cities. My test key is [REDACTED:anthropic-key] and the server is at [REDACTED:url-basic-auth]
-```
-
+See: `PROMPT_TREE.md` · `.treetrace/lessons.md` · `.treetrace/agent-memory.md` · handoff: run `treetrace --handoff`
 ---
-
-*Generated by [treetrace](https://github.com/Tree-Trace/treetrace) · v0.5.0 · 4 prompts across 1 session · machine-readable lineage in `.treetrace/tree.json` ([schema](https://github.com/Tree-Trace/treetrace/blob/main/SCHEMA.md))*
-
----
-
-Generated by [treetrace](https://github.com/Tree-Trace/treetrace) v0.5.0.
+Generated by [treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.8.0.

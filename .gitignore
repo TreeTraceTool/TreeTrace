@@ -3,6 +3,7 @@ node_modules/
 .DS_Store
 
 .treetrace/redactions.json
+**/.treetrace/redactions.json
 
 /.treetrace/
 /PROMPT_TREE.md
@@ -11,6 +12,11 @@ node_modules/
 _ops/
 
 # Internal-only drafts and mock assets (do not publish)
+docs/artifact-diet-spec.md
+docs/benchmark-methodology.md
+docs/labeling-accuracy-proposal.md
 docs/launch-narrative-draft.md
 docs/dogfooding-case-study-findings.md
 docs/hero-mocks/
+docs/sample-prompt-tree.*
+docs/sample-trimmed-output/

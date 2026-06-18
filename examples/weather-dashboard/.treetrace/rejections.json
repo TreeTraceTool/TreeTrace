@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "0.3",
+  "project": {
+    "name": "weather-dashboard",
+    "generatedAt": "2026-06-18T22:02:52.494Z"
+  },
+  "summary": {
+    "total": 2,
+    "byKind": {
+      "user_text_decline": 1,
+      "user_interrupt": 1
+    }
+  },
+  "rejections": [
+    {
+      "nodeId": "node_003",
+      "kind": "user_text_decline",
+      "source": "text",
+      "confidence": 0.8,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-01T10:09:00.000Z",
+      "evidence": "No, scrap the radar map, it is too heavy. Keep the page lightweight, just the forecast cards."
+    },
+    {
+      "nodeId": "node_003",
+      "kind": "user_interrupt",
+      "source": "text",
+      "confidence": 1,
+      "toolUseId": null,
+      "tool": null,
+      "ts": "2026-06-01T10:11:00.000Z",
+      "evidence": "[Request interrupted by user]"
+    }
+  ]
+}

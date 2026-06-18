@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "0.3",
+  "project": {
+    "name": "rejections",
+    "generatedAt": "2026-06-18T22:02:52.475Z"
+  },
+  "summary": {
+    "totalFailureSignals": 9,
+    "topFailureTypes": [
+      {
+        "type": "user_rejected_action",
+        "count": 3
+      },
+      {
+        "type": "model_refused",
+        "count": 2
+      },
+      {
+        "type": "misunderstood_goal",
+        "count": 1
+      },
+      {
+        "type": "permission_denied",
+        "count": 1
+      },
+      {
+        "type": "security_or_privacy_risk",
+        "count": 1
+      },
+      {
+        "type": "tool_execution_failed",
+        "count": 1
+      }
+    ],
+    "tierCounts": {
+      "verified": 3,
+      "high": 4,
+      "confirmed": 1,
+      "inferred": 1
+    },
+    "models": [
+      "claude-3-opus"
+    ],
+    "thinkingBlocks": 0,
+    "correctionChains": 1,
+    "evalCandidates": 5,
+    "lessons": 6
+  },
+  "failures": [
+    {
+      "id": "failure_001",
+      "type": "user_rejected_action",
+      "tier": "verified",
+      "confidence": 1,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_001",
+      "correctedByNodeId": null,
+      "summary": "The user declined a proposed tool action near \"Build a thing in this repo.\".",
+      "evidence": "user_declined_tool (tool_result): \"The user doesn't want to proceed with this tool use. The user wants you to answer a different question instead.\"",
+      "lesson": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_declined_tool (tool_result): \"The user doesn't want to proceed with this tool use. The user wants you to answer a different question instead.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_002",
+      "type": "user_rejected_action",
+      "tier": "verified",
+      "confidence": 1,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_002",
+      "correctedByNodeId": null,
+      "summary": "The user interrupted the agent mid-response near \"Use the Edit tool to add a README instead.\".",
+      "evidence": "user_interrupt (text): \"[Request interrupted by user]\"",
+      "lesson": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_interrupt (text): \"[Request interrupted by user]\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_003",
+      "type": "tool_execution_failed",
+      "tier": "high",
+      "confidence": 0.9,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": null,
+      "summary": "A tool execution returned an error near \"Try writing a new file via the Write tool.\".",
+      "evidence": "tool_execution_error (tool_result): \"mkdir: cannot create directory '/root/.config/forbidden': File exists\"",
+      "lesson": "Future agents should validate command inputs and surface expected errors before running shell or write tools, instead of discovering failures after execution. Specifically: tool_execution_error (tool_result): \"mkdir: cannot create directory '/root/.config/forbidden': File exists\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_004",
+      "type": "permission_denied",
+      "tier": "high",
+      "confidence": 0.85,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": null,
+      "summary": "A tool action was denied by the environment (permission denied) near \"Try writing a new file via the Write tool.\".",
+      "evidence": "permission_denied (tool_result): \"sudo: permission denied; user is not in the sudoers file. This incident will be reported.\"",
+      "lesson": "Future agents should pre-flight check that required files, commands, or resources are accessible before attempting an action that needs them. Specifically: permission_denied (tool_result): \"sudo: permission denied; user is not in the sudoers file. This incident will be reported.\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_005",
+      "type": "security_or_privacy_risk",
+      "tier": "high",
+      "confidence": 0.84,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": null,
+      "summary": "An agent action touched auth, secrets, or access control near \"Try writing a new file via the Write tool.\".",
+      "evidence": "Agent action touched risky-command [signals: risky command]: \"sudo rm -rf /root/.config/forbidden\"",
+      "lesson": "Future agents should not weaken local-first privacy, redaction, or no-network guarantees without explicit approval. Specifically: Agent action touched risky-command [signals: risky command]: \"sudo rm -rf /root/.config/forbidden\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_006",
+      "type": "user_rejected_action",
+      "tier": "high",
+      "confidence": 0.8,
+      "model": null,
+      "firstSeenNodeId": "node_004",
+      "correctedByNodeId": null,
+      "summary": "The user explicitly told the agent to stop or not proceed near \"stop, don't do that\".",
+      "evidence": "user_text_decline (text): \"stop, don't do that\"",
+      "lesson": "Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking. Specifically: user_text_decline (text): \"stop, don't do that\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_007",
+      "type": "model_refused",
+      "tier": "verified",
+      "confidence": 0.95,
+      "model": null,
+      "firstSeenNodeId": "node_004",
+      "correctedByNodeId": null,
+      "summary": "The model refused to proceed near \"stop, don't do that\".",
+      "evidence": "model_refusal (stop_reason)",
+      "lesson": "Future agents should treat a refusal as a signal to rephrase or descope, not to retry the same request verbatim; if the user confirms the request is legitimate, surface the refusal reason. Specifically: model_refusal (stop_reason)",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_008",
+      "type": "misunderstood_goal",
+      "tier": "inferred",
+      "confidence": 0.68,
+      "model": "claude-3-opus",
+      "firstSeenNodeId": "node_003",
+      "correctedByNodeId": "node_004",
+      "summary": "A possible misunderstood goal occurred near \"Try writing a new file via the Write tool.\"; corrected by \"stop, don't do that\".",
+      "evidence": "User said: \"stop, don't do that\"",
+      "lesson": "Future agents should restate and verify the goal before continuing after a correction. Specifically: User said: \"stop, don't do that\"",
+      "evalCandidate": true
+    },
+    {
+      "id": "failure_009",
+      "type": "model_refused",
+      "tier": "confirmed",
+      "confidence": 0.7,
+      "model": null,
+      "firstSeenNodeId": "node_005",
+      "correctedByNodeId": null,
+      "summary": "The model refused to proceed near \"Can you at least tell me what would have happened?\".",
+      "evidence": "model_refusal (text_heuristic): \"I can't help with that request. It would require me to describe how to bypass filesystem permissions, which I am programmed not to do.\"",
+      "lesson": "Future agents should treat a refusal as a signal to rephrase or descope, not to retry the same request verbatim; if the user confirms the request is legitimate, surface the refusal reason. Specifically: model_refusal (text_heuristic): \"I can't help with that request. It would require me to describe how to bypass filesystem permissions, which I am programmed not to do.\"",
+      "evalCandidate": true
+    }
+  ],
+  "correctionChains": [
+    {
+      "id": "chain_001",
+      "failureNodeId": "node_003",
+      "correctionNodeId": "node_004",
+      "resolvedNodeId": null,
+      "failureType": "misunderstood_goal",
+      "confidence": "medium",
+      "summary": "A possible misunderstood goal occurred near \"Try writing a new file via the Write tool.\"; corrected by \"stop, don't do that\"."
+    }
+  ]
+}
