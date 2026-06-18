@@ -1,4 +1,5 @@
 import { truncate, escapeMd } from './util.js';
+import { SCHEMA_VERSION } from './config.js';
 
 const FAILURE_TYPES = new Set([
   'ignored_constraint',
@@ -536,7 +537,7 @@ export function analyzeTree(tree) {
 
   const topFailureTypes = countTypes(failures);
   tree.analysis = {
-    schemaVersion: '0.2',
+    schemaVersion: SCHEMA_VERSION,
     summary: {
       totalFailureSignals: failures.length,
       topFailureTypes,
@@ -558,7 +559,7 @@ export function analyzeTree(tree) {
 export function renderFailuresJson(tree, opts = {}) {
   const analysis = analyzeTree(tree);
   return {
-    schemaVersion: '0.2',
+    schemaVersion: SCHEMA_VERSION,
     project: projectBlock(opts),
     summary: analysis.summary,
     failures: analysis.failures,

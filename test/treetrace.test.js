@@ -1026,6 +1026,26 @@ test('security report and hallucinations.json do not leak injected secrets via t
   }
 });
 
+test('cli: structured exit codes for CI consumers', async () => {
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn('node', [bin, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d; });
+      child.on('close', (code) => resolve({ code, stderr }));
+    });
+  const empty = mkdtempSync(join(tmpdir(), 'treetrace-exit-'));
+  try {
+    const usage = await run(['--bogus']);
+    assert.equal(usage.code, 2, `bad option should exit 2 (got ${usage.code}): ${usage.stderr}`);
+    const nodata = await run(['--dir', empty]);
+    assert.equal(nodata.code, 3, `nothing-to-trace should exit 3 (got ${nodata.code}): ${nodata.stderr}`);
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
+  }
+});
+
 test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', async () => {
   const dir = tempProject();
   const convo = [{
@@ -1066,7 +1086,7 @@ test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', 
 
     const list = responses.find((r) => r.id === 2);
     const names = list.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary']);
+    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary', 'tree']);
 
     const call = responses.find((r) => r.id === 3);
     assert.ok(call.result && Array.isArray(call.result.content), 'tools/call must return content array');
