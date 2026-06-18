@@ -85,3 +85,19 @@ export function escapeMdTags(text) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+export const ExitCode = Object.freeze({
+  OK: 0,
+  ERROR: 1,
+  USAGE: 2,
+  NO_DATA: 3,
+  WOULD_LEAK: 4,
+});
+
+export class TreetraceError extends Error {
+  constructor(message, exitCode = ExitCode.ERROR) {
+    super(message);
+    this.name = 'TreetraceError';
+    this.exitCode = exitCode;
+  }
+}

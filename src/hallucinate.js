@@ -1,6 +1,7 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { truncate } from './util.js';
+import { SCHEMA_VERSION } from './config.js';
 
 const NODE_BUILTINS = new Set([
   'assert', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console', 'constants',
@@ -286,7 +287,7 @@ function isRelativeOrLocalSpec(spec) {
 export function detectHallucinations(tree, projectDir, opts = {}) {
   const hallucinations = [];
   if (!projectDir || !existsSync(projectDir)) {
-    return { schemaVersion: '0.2', verifiedAgainstWorkingTree: false, hallucinations, summary: emptySummary() };
+    return { schemaVersion: SCHEMA_VERSION, verifiedAgainstWorkingTree: false, hallucinations, summary: emptySummary() };
   }
 
   const created = collectCreatedFiles(tree, projectDir);
@@ -336,7 +337,7 @@ export function detectHallucinations(tree, projectDir, opts = {}) {
   }
 
   return {
-    schemaVersion: '0.2',
+    schemaVersion: SCHEMA_VERSION,
     verifiedAgainstWorkingTree: true,
     manifestSeen: hasManifest,
     hallucinations,
@@ -360,7 +361,7 @@ function summarize(hallucinations) {
 export function renderHallucinationsJson(tree, projectDir, opts = {}) {
   const result = detectHallucinations(tree, projectDir, opts);
   return {
-    schemaVersion: '0.2',
+    schemaVersion: SCHEMA_VERSION,
     project: { name: opts.projectName || null, generatedAt: opts.generatedAt || null },
     verifiedAgainstWorkingTree: result.verifiedAgainstWorkingTree,
     manifestSeen: result.manifestSeen || false,

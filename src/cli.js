@@ -22,7 +22,7 @@ import { makeTitle } from './extract.js';
 import { renderHallucinationsJson } from './hallucinate.js';
 import { renderSecurityReport } from './security-report.js';
 import { startMcpServer } from './mcp.js';
-import { c, plural, truncate } from './util.js';
+import { c, plural, truncate, TreetraceError, ExitCode } from './util.js';
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
@@ -56,6 +56,9 @@ Options:
   --security            print a security-focused report and write hallucinations.json
   --mcp                 start a read-only MCP server over stdio (same as: treetrace mcp)
   --redact-auto         redact every detected secret without prompting
+  --keep-git-shas       keep git object hashes (40/64-hex in a git context) instead of
+                        redacting them as generic hex tokens; opt-in, still fail-closed
+                        for any value that also matches a named secret rule
   --since <YYYY-MM-DD>  only include sessions active on/after this date
                         (timestamped sessions only; plain transcripts are excluded)
   --quiet               suppress progress output
@@ -63,7 +66,10 @@ Options:
 
 Every export passes a redaction gate: detected secrets must be resolved
 (redact/keep/edit) before anything is written. Outside a terminal, every
-hit is redacted automatically - treetrace fails closed.`;
+hit is redacted automatically - treetrace fails closed.
+
+Exit codes: 0 ok, 1 generic error, 2 usage error, 3 nothing to trace,
+4 redaction gate refused to write an unresolved secret.`;
 
 export async function main(argv) {
   const opts = parseArgs(argv);
@@ -207,10 +213,11 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
       ? found.filter((s) => s.mtimeMs >= Date.parse(opts.since))
       : found;
     if (!filtered.length) {
-      throw new Error(
+      throw new TreetraceError(
         `no Claude Code sessions found for ${projectDir}.\n` +
           `Looked in ~/.claude/projects/ for sessions started from this directory.\n` +
-          `Use --file <transcript> or --stdin to import a transcript directly.`
+          `Use --file <transcript> or --stdin to import a transcript directly.`,
+        ExitCode.NO_DATA
       );
     }
     const totalMB = filtered.reduce((a, s) => a + s.sizeBytes, 0) / 1048576;
@@ -227,16 +234,17 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   if (opts.since) {
     sessions = sessions.filter((s) => s.lastTs && s.lastTs >= opts.since);
     if (!sessions.length) {
-      throw new Error(
+      throw new TreetraceError(
         `no sessions on or after ${opts.since}. --since only applies to timestamped sessions; ` +
-          `plain transcripts carry no timestamps and are excluded when --since is set.`
+          `plain transcripts carry no timestamps and are excluded when --since is set.`,
+        ExitCode.NO_DATA
       );
     }
   }
 
   const nodes = classifyPrompts(sessions);
   if (!nodes.length) {
-    throw new Error('no human prompts found in these sessions, nothing to trace.');
+    throw new TreetraceError('no human prompts found in these sessions, nothing to trace.', ExitCode.NO_DATA);
   }
   const tree = buildTree(sessions, nodes);
 
@@ -263,9 +271,10 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   }
 
   const interactive = !forceAuto && process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
-  const { decisions, asked, autoRedacted, overriddenKeeps } = await resolveFindings(findings, priorDecisions, {
+  const { decisions, asked, autoRedacted, overriddenKeeps, autoKeptGitShas } = await resolveFindings(findings, priorDecisions, {
     interactive,
     autoRedact: forceAuto || opts.redactAuto,
+    keepGitShas: opts.keepGitShas,
   });
   if (overriddenKeeps) {
     log(
@@ -280,6 +289,9 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
         `redacted ${plural(autoRedacted, 'potential secret')} automatically (non-interactive mode fails closed)`
       )
     );
+  }
+  if (autoKeptGitShas) {
+    log(c.dim(`kept ${plural(autoKeptGitShas, 'git object hash')} as non-secret (--keep-git-shas)`));
   }
 
   for (const node of tree.nodes) {
@@ -397,10 +409,11 @@ function requestedArtifacts(opts, artifacts) {
 export function assertClean(rendered, decisions, label) {
   const leaks = shadowScan(rendered, decisions);
   if (leaks.length) {
-    throw new Error(
+    throw new TreetraceError(
       `shadow scan found ${plural(leaks.length, 'unresolved secret')} in the rendered ${label} ` +
         `(${[...new Set(leaks.map((l) => l.ruleId))].join(', ')}). Refusing to write. ` +
-        `This is a bug worth reporting; as a workaround run interactively to resolve hits.`
+        `This is a bug worth reporting; as a workaround run interactively to resolve hits.`,
+      ExitCode.WOULD_LEAK
     );
   }
 }
@@ -510,6 +523,7 @@ export function parseArgs(argv) {
     mcp: false,
     titlesOnly: false,
     redactAuto: false,
+    keepGitShas: false,
     quiet: false,
     help: false,
     version: false,
@@ -523,7 +537,7 @@ export function parseArgs(argv) {
   const requireValue = (flag) => {
     const next = argv[i + 1];
     if (next === undefined || next.startsWith('--')) {
-      throw new Error(`${flag} requires a value`);
+      throw new TreetraceError(`${flag} requires a value`, ExitCode.USAGE);
     }
     return argv[++i];
   };
@@ -532,7 +546,7 @@ export function parseArgs(argv) {
     switch (a) {
       case '--file':
         if (argv[i + 1] === undefined || argv[i + 1].startsWith('--')) {
-          throw new Error('--file requires at least one path');
+          throw new TreetraceError('--file requires at least one path', ExitCode.USAGE);
         }
         while (argv[i + 1] && !argv[i + 1].startsWith('--')) opts.files.push(argv[++i]);
         break;
@@ -552,13 +566,14 @@ export function parseArgs(argv) {
       case 'mcp': case '--mcp': opts.mcp = true; break;
       case '--titles-only': opts.titlesOnly = true; break;
       case '--redact-auto': opts.redactAuto = true; break;
+      case '--keep-git-shas': opts.keepGitShas = true; break;
       case '--quiet': opts.quiet = true; break;
       case '--help': case '-h': opts.help = true; break;
       case '--version': case '-v': opts.version = true; break;
       case '--from':
         opts.from = requireValue('--from');
         if (!TOOLS.includes(opts.from)) {
-          throw new Error(`unknown --from value "${opts.from}" (expected one of: ${TOOLS.join(', ')})`);
+          throw new TreetraceError(`unknown --from value "${opts.from}" (expected one of: ${TOOLS.join(', ')})`, ExitCode.USAGE);
         }
         break;
       case '--dir': opts.dir = requireValue('--dir'); break;
@@ -567,15 +582,15 @@ export function parseArgs(argv) {
       case '--since':
         opts.since = requireValue('--since');
         if (!/^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(opts.since) || Number.isNaN(Date.parse(opts.since))) {
-          throw new Error(`--since expects a date like YYYY-MM-DD (got "${opts.since}")`);
+          throw new TreetraceError(`--since expects a date like YYYY-MM-DD (got "${opts.since}")`, ExitCode.USAGE);
         }
         break;
       default:
-        throw new Error(`unknown option ${a} (try --help)`);
+        throw new TreetraceError(`unknown option ${a} (try --help)`, ExitCode.USAGE);
     }
   }
   if (opts.stdin && opts.from === 'claude') {
-    throw new Error('--stdin cannot be combined with --from claude: Claude Code JSONL sessions are read from files. Use --file, or omit --from to paste a plain transcript.');
+    throw new TreetraceError('--stdin cannot be combined with --from claude: Claude Code JSONL sessions are read from files. Use --file, or omit --from to paste a plain transcript.', ExitCode.USAGE);
   }
   return opts;
 }

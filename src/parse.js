@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
+import { TreetraceError, ExitCode } from './util.js';
 
 const DAG_TYPES = new Set(['user', 'assistant', 'system', 'attachment']);
 
@@ -363,9 +364,10 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
   if (current && current.text.trim()) prompts.push(current);
 
   if (!sawMarkers) {
-    throw new Error(
+    throw new TreetraceError(
       'could not find user/assistant turn markers in the transcript. ' +
-        'Expected lines like "User:", "## User", "Human:", "Assistant:" separating turns.'
+        'Expected lines like "User:", "## User", "Human:", "Assistant:" separating turns.',
+      ExitCode.NO_DATA
     );
   }
 

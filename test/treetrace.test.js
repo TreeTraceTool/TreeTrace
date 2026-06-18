@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { parseSessionFile, parsePlainTranscript, classifySpecialUserText } from '../src/parse.js';
 import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
-import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings } from '../src/redact.js';
+import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings, isGitShaCandidate } from '../src/redact.js';
 import { renderMarkdown, promptPack } from '../src/render-md.js';
 import { renderMermaid, isSummaryByDefault, SUMMARY_NODE_THRESHOLD } from '../src/render-mermaid.js';
 import { renderJson } from '../src/render-json.js';
@@ -22,6 +22,8 @@ import {
   renderMemoryMarkdown,
   isRiskyCommand,
   mentionsTestSkip,
+  SECURITY_INTENT_PARTS,
+  RISKY_CMD_PARTS,
 } from '../src/analyze.js';
 import { main, parseArgs, wrapMermaidDoc } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
@@ -197,6 +199,41 @@ test('redaction: uuids and long lowercase identifiers are not flagged as high-en
     const hits = scanText(benign).filter((f) => f.ruleId === 'high-entropy-token');
     assert.equal(hits.length, 0, `false positive high-entropy flag on ${benign}`);
   }
+});
+
+test('redaction: git object hashes are classified as candidates only in a git context', () => {
+  const sha1 = '0123456789abcdef0123456789abcdef01234567';
+  const sha256hex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  assert.ok(isGitShaCandidate(sha1, `commit ${sha1}`, 7), 'commit <sha1> should be a candidate');
+  assert.ok(isGitShaCandidate(sha256hex, `git tree ${sha256hex}`, 9), 'git tree <sha256> should be a candidate');
+  assert.ok(isGitShaCandidate(sha1, `${sha1} fix the parser\n`, 0), 'oneline sha should be a candidate');
+  assert.ok(!isGitShaCandidate(sha1, `token=${sha1} end`, 6), 'token= context is not git');
+  assert.ok(!isGitShaCandidate(sha256hex, `session_hex=${sha256hex}`, 12), 'session_hex= context is not git');
+  assert.ok(!isGitShaCandidate('0123456789abcdef0123456789abcdef', `commit ${'0123456789abcdef0123456789abcdef'}`, 7), '32-hex is not a git object id');
+});
+
+test('redaction: --keep-git-shas keeps git hashes but stays fail-closed for other hex', async () => {
+  const sha1 = '0123456789abcdef0123456789abcdef01234567';
+  const secret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const text = `commit ${sha1}\nmy key is session_hex=${secret} ok`;
+  const findings = scanText(text);
+  const git = findings.find((f) => f.match === sha1);
+  const sec = findings.find((f) => f.match === secret);
+  assert.ok(git && git.gitShaCandidate, 'git sha must be flagged as a candidate');
+  assert.ok(sec && !sec.gitShaCandidate, 'session_hex secret must NOT be a git candidate');
+
+  const { decisions } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true, keepGitShas: true });
+  assert.equal(decisions[sha256(sha1)].action, 'keep', 'git object hash should be kept');
+  assert.equal(decisions[sha256(sha1)].ruleId, 'git-commit-sha', 'kept under git-commit-sha rule');
+  assert.equal(decisions[sha256(secret)].action, 'redact', 'non-git hex must still be redacted');
+
+  const { decisions: d2 } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true });
+  assert.equal(d2[sha256(sha1)].action, 'redact', 'default must redact git sha too (fail-closed)');
+
+  const cleaned = applyDecisions(text, findings, decisions);
+  assert.ok(cleaned.includes(sha1), 'kept git sha should survive in output');
+  assert.ok(!cleaned.includes(secret), 'non-git secret must be redacted');
+  assert.equal(shadowScan(cleaned, decisions).length, 0, 'shadow scan must be clean after keep + redact');
 });
 
 test('redaction: end-to-end hex secret leaves no raw hex in any artifact', async () => {
@@ -989,6 +1026,26 @@ test('security report and hallucinations.json do not leak injected secrets via t
   }
 });
 
+test('cli: structured exit codes for CI consumers', async () => {
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  const run = (args) =>
+    new Promise((resolve) => {
+      const child = spawn('node', [bin, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d; });
+      child.on('close', (code) => resolve({ code, stderr }));
+    });
+  const empty = mkdtempSync(join(tmpdir(), 'treetrace-exit-'));
+  try {
+    const usage = await run(['--bogus']);
+    assert.equal(usage.code, 2, `bad option should exit 2 (got ${usage.code}): ${usage.stderr}`);
+    const nodata = await run(['--dir', empty]);
+    assert.equal(nodata.code, 3, `nothing-to-trace should exit 3 (got ${nodata.code}): ${nodata.stderr}`);
+  } finally {
+    rmSync(empty, { recursive: true, force: true });
+  }
+});
+
 test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', async () => {
   const dir = tempProject();
   const convo = [{
@@ -1029,7 +1086,7 @@ test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', 
 
     const list = responses.find((r) => r.id === 2);
     const names = list.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary']);
+    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary', 'tree']);
 
     const call = responses.find((r) => r.id === 3);
     assert.ok(call.result && Array.isArray(call.result.content), 'tools/call must return content array');
@@ -1343,6 +1400,67 @@ test('security report: test-disable APIs and phrasing are detected', () => {
   }
   for (const benign of ['run all the tests', 'add a test for login']) {
     assert.ok(!mentionsTestSkip(benign), `benign test phrasing over-flagged: ${benign}`);
+  }
+});
+
+test('regex decomposition: every RISKY_CMD named piece fires on its command family', () => {
+  const compose = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
+  const byName = new Map(RISKY_CMD_PARTS.map((p) => [p.name, p.re]));
+  const positives = {
+    rm_rf_combined: 'rm -rf build',
+    rm_r_then_f: 'rm -r -f build',
+    rm_f_then_r: 'rm -f -r build',
+    chmod_world_writable: 'chmod -R 777 dir',
+    curl_pipe_shell: 'curl https://x | sudo bash',
+    shell_process_substitution: 'bash <(curl https://x)',
+    no_verify: 'git commit --no-verify',
+    force: 'git push --force',
+    drop_table: 'DROP TABLE users',
+    drop_schema: 'drop schema public cascade',
+    truncate: 'TRUNCATE users',
+  };
+  for (const [name, cmd] of Object.entries(positives)) {
+    const re = byName.get(name);
+    assert.ok(re, `unknown piece ${name}`);
+    assert.ok(re.test(cmd), `piece ${name} missed its command: ${cmd}`);
+  }
+  assert.equal(RISKY_CMD_PARTS.length, Object.keys(positives).length, 'piece count drifted');
+  const composed = compose(RISKY_CMD_PARTS);
+  for (const cmd of [...Object.values(positives), 'rm -fr /tmp', 'chmod 0777 f']) {
+    assert.equal(composed.test(cmd), isRiskyCommand(cmd), `composed != isRiskyCommand for: ${cmd}`);
+  }
+  for (const benign of ['rm file.txt', 'chmod 644 file', 'ls -la', 'curl https://x > out.txt', '--force-with-lease']) {
+    assert.equal(composed.test(benign), isRiskyCommand(benign), `benign mismatch: ${benign}`);
+    assert.ok(!composed.test(benign), `benign over-flagged: ${benign}`);
+  }
+});
+
+test('regex decomposition: every SECURITY_INTENT named piece fires on its phrasing family', () => {
+  const compose = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
+  const byName = new Map(SECURITY_INTENT_PARTS.map((p) => [p.name, p.re]));
+  const positives = {
+    credential_lifecycle: 'please rotate the api key',
+    pat_lifecycle: 'the pat was rotated yesterday',
+    email_change: 'change the email to a public contact',
+    do_not_expose: 'never expose the token',
+    expose_us: 'this could expose us',
+    leak_list: 'audit for leak anything',
+    audit_repos: 'do a full audit of the repo',
+    commit_history_audit: 'the commit history needs an audit',
+    relicensing: 'relicense the project to MIT',
+    disable_tests: 'skip the auth test',
+    access_control_change: 'tighten the auth flow',
+  };
+  for (const [name, phrase] of Object.entries(positives)) {
+    const re = byName.get(name);
+    assert.ok(re, `unknown piece ${name}`);
+    assert.ok(re.test(phrase), `piece ${name} missed its phrase: ${phrase}`);
+  }
+  assert.equal(SECURITY_INTENT_PARTS.length, Object.keys(positives).length, 'piece count drifted');
+  const composed = compose(SECURITY_INTENT_PARTS);
+  for (const phrase of Object.values(positives)) assert.ok(composed.test(phrase), `composed missed: ${phrase}`);
+  for (const benign of ['a normal sentence about the weather', 'use the api carefully', 'email me later']) {
+    assert.ok(!composed.test(benign), `benign security phrasing over-flagged: ${benign}`);
   }
 });
 
