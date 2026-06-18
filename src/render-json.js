@@ -1,4 +1,4 @@
-import { REPO_URL } from './config.js';
+import { REPO_URL, SCHEMA_VERSION } from './config.js';
 import { analyzeTree } from './analyze.js';
 
 const RELATIONSHIP_BY_KIND = {
@@ -16,7 +16,7 @@ export function renderJson(tree, opts = {}) {
   const analysis = analyzeTree(tree);
 
   return {
-    schemaVersion: '0.2',
+    schemaVersion: SCHEMA_VERSION,
     generator: { name: generatedBy, version, url: REPO_URL },
     project: {
       name: projectName,

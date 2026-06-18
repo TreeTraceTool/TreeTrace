@@ -5,6 +5,9 @@ import { renderHandoff } from './handoff.js';
 import { renderLessonsMarkdown, analyzeTree } from './analyze.js';
 import { renderSecurityReport } from './security-report.js';
 import { renderHallucinationsJson } from './hallucinate.js';
+import { renderJson } from './render-json.js';
+import { SCHEMA_VERSION } from './config.js';
+import { TreetraceError, ExitCode } from './util.js';
 
 const PROTOCOL_VERSION = '2024-11-05';
 const MAX_REQUEST_BYTES = 1048576;
@@ -30,6 +33,11 @@ const TOOL_DEFS = [
     description: 'Compact regression cases derived from session corrections and hallucinated references. Read only.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
+  {
+    name: 'tree',
+    description: 'Full prompt-lineage tree as canonical JSON (nodes, stats, analysis). The structured counterpart to the Markdown reports. Read only.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
 ];
 
 export async function startMcpServer({ argv, version }, io = {}) {
@@ -37,9 +45,10 @@ export async function startMcpServer({ argv, version }, io = {}) {
   const output = io.output || process.stdout;
   const opts = parseArgs((argv || []).filter((a) => a !== 'mcp' && a !== '--mcp'));
   if (opts.stdin) {
-    throw new Error(
+    throw new TreetraceError(
       'treetrace mcp does not support --stdin: stdin is the JSON-RPC transport for the MCP server. ' +
-        'Point the server at a project with --dir, or import a transcript with --file.'
+        'Point the server at a project with --dir, or import a transcript with --file.',
+      ExitCode.USAGE
     );
   }
   const projectDir = resolve(opts.dir || process.cwd());
@@ -168,12 +177,14 @@ function renderTool(name, tree, renderOpts) {
       const analysis = analyzeTree(tree);
       const hall = renderHallucinationsJson(tree, renderOpts.projectDir || null, renderOpts);
       const payload = {
-        schemaVersion: '0.2',
+        schemaVersion: SCHEMA_VERSION,
         evalCandidates: analysis.evalCandidates,
         hallucinationEvalCandidates: hall.hallucinations.map((h) => h.evalCandidate),
       };
       return JSON.stringify(payload, null, 2);
     }
+    case 'tree':
+      return JSON.stringify(renderJson(tree, renderOpts), null, 2);
     default:
       return '';
   }

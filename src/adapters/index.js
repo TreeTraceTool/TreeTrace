@@ -5,6 +5,7 @@ import { detectChatGPT, parseChatGPT } from './chatgpt.js';
 import { detectCopilot, parseCopilot } from './copilot.js';
 import { detectGrok, parseGrok } from './grok.js';
 import { detectCursor, parseCursor } from './cursor.js';
+import { TreetraceError, ExitCode } from '../util.js';
 
 export const TOOLS = ['claude', 'codex', 'chatgpt', 'gemini', 'copilot', 'grok', 'cursor', 'transcript'];
 
@@ -35,7 +36,7 @@ export function adaptFrom(tool, text, path) {
     case 'cursor':
       return [parseCursor(json, path, id)];
     default:
-      throw new Error(`unknown --from tool "${tool}" (expected one of: ${TOOLS.join(', ')})`);
+      throw new TreetraceError(`unknown --from tool "${tool}" (expected one of: ${TOOLS.join(', ')})`, ExitCode.USAGE);
   }
 }
 
