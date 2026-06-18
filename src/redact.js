@@ -85,6 +85,19 @@ function findOversizedRuns(text) {
   return runs;
 }
 
+const GIT_SHA_LENGTHS = new Set([40, 64]);
+
+export function isGitShaCandidate(match, text, index) {
+  if (!match || !GIT_SHA_LENGTHS.has(match.length)) return false;
+  if (!/^[0-9a-fA-F]+$/.test(match)) return false;
+  const before = text.slice(Math.max(0, index - 48), index);
+  if (/\b(?:commit|tree|parent|object|merge|ref|refs|origin|HEAD|tag|blob|cherry|rebase|bisect|stash)\b[\s:./-]*$/i.test(before)) {
+    return true;
+  }
+  const atLineStart = index === 0 || text[index - 1] === '\n';
+  return atLineStart && text[index + match.length] === ' ';
+}
+
 export function scanText(text) {
   const oversized = text.length > MAX_TOKEN_LEN ? findOversizedRuns(text) : [];
   let scanInput = text;
@@ -110,12 +123,14 @@ export function scanText(text) {
     rule.re.lastIndex = 0;
     let m;
     while ((m = rule.re.exec(scanInput)) !== null) {
-      findings.push({
+      const finding = {
         ruleId: rule.id,
         severity: rule.severity,
         match: m[0],
         index: m.index,
-      });
+      };
+      if (rule.id === 'hex-token') finding.gitShaCandidate = isGitShaCandidate(m[0], scanInput, m.index);
+      findings.push(finding);
       if (m.index === rule.re.lastIndex) rule.re.lastIndex++;
     }
   }
@@ -173,7 +188,7 @@ export function maskFor(finding) {
   return `[REDACTED:${finding.ruleId}]`;
 }
 
-export async function resolveFindings(findings, priorDecisions, { interactive, autoRedact }) {
+export async function resolveFindings(findings, priorDecisions, { interactive, autoRedact, keepGitShas = false } = {}) {
   const decisions = { ...priorDecisions };
   const unique = new Map();
   for (const f of findings) {
@@ -182,12 +197,25 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
     unique.get(h).count++;
   }
 
+  let autoKeptGitShas = 0;
+  if (keepGitShas) {
+    const highHashes = new Set();
+    for (const f of findings) if (f.severity === 'high') highHashes.add(sha256(f.match));
+    for (const [h, { finding }] of unique) {
+      if (finding.gitShaCandidate && !decisions[h] && !highHashes.has(h)) {
+        decisions[h] = { action: 'keep', ruleId: 'git-commit-sha' };
+        autoKeptGitShas++;
+      }
+    }
+  }
+
   const autoMode = !interactive || autoRedact;
   let overriddenKeeps = 0;
   if (autoMode) {
     for (const [h, { finding }] of unique) {
       const prior = decisions[h];
       if (prior && prior.action === 'keep' && (finding.severity === 'high' || finding.severity === 'medium')) {
+        if (keepGitShas && finding.gitShaCandidate) continue;
         delete decisions[h];
         overriddenKeeps++;
       }
@@ -195,13 +223,13 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
   }
 
   const unresolved = [...unique.entries()].filter(([h]) => !decisions[h]);
-  if (!unresolved.length) return { decisions, asked: 0, overriddenKeeps };
+  if (!unresolved.length) return { decisions, asked: 0, overriddenKeeps, autoKeptGitShas };
 
   if (autoMode) {
     for (const [h, { finding }] of unresolved) {
       decisions[h] = { action: 'redact', replacement: maskFor(finding), ruleId: finding.ruleId };
     }
-    return { decisions, asked: 0, autoRedacted: unresolved.length, overriddenKeeps };
+    return { decisions, asked: 0, autoRedacted: unresolved.length, overriddenKeeps, autoKeptGitShas };
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });
@@ -236,7 +264,7 @@ export async function resolveFindings(findings, priorDecisions, { interactive, a
     }
   }
   rl.close();
-  return { decisions, asked: unresolved.length };
+  return { decisions, asked: unresolved.length, autoKeptGitShas };
 }
 
 export function applyDecisions(text, findings, decisions) {

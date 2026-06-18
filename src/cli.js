@@ -56,6 +56,9 @@ Options:
   --security            print a security-focused report and write hallucinations.json
   --mcp                 start a read-only MCP server over stdio (same as: treetrace mcp)
   --redact-auto         redact every detected secret without prompting
+  --keep-git-shas       keep git object hashes (40/64-hex in a git context) instead of
+                        redacting them as generic hex tokens; opt-in, still fail-closed
+                        for any value that also matches a named secret rule
   --since <YYYY-MM-DD>  only include sessions active on/after this date
                         (timestamped sessions only; plain transcripts are excluded)
   --quiet               suppress progress output
@@ -263,9 +266,10 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   }
 
   const interactive = !forceAuto && process.stdin.isTTY && process.stderr.isTTY && !opts.redactAuto;
-  const { decisions, asked, autoRedacted, overriddenKeeps } = await resolveFindings(findings, priorDecisions, {
+  const { decisions, asked, autoRedacted, overriddenKeeps, autoKeptGitShas } = await resolveFindings(findings, priorDecisions, {
     interactive,
     autoRedact: forceAuto || opts.redactAuto,
+    keepGitShas: opts.keepGitShas,
   });
   if (overriddenKeeps) {
     log(
@@ -280,6 +284,9 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
         `redacted ${plural(autoRedacted, 'potential secret')} automatically (non-interactive mode fails closed)`
       )
     );
+  }
+  if (autoKeptGitShas) {
+    log(c.dim(`kept ${plural(autoKeptGitShas, 'git object hash')} as non-secret (--keep-git-shas)`));
   }
 
   for (const node of tree.nodes) {
@@ -510,6 +517,7 @@ export function parseArgs(argv) {
     mcp: false,
     titlesOnly: false,
     redactAuto: false,
+    keepGitShas: false,
     quiet: false,
     help: false,
     version: false,
@@ -552,6 +560,7 @@ export function parseArgs(argv) {
       case 'mcp': case '--mcp': opts.mcp = true; break;
       case '--titles-only': opts.titlesOnly = true; break;
       case '--redact-auto': opts.redactAuto = true; break;
+      case '--keep-git-shas': opts.keepGitShas = true; break;
       case '--quiet': opts.quiet = true; break;
       case '--help': case '-h': opts.help = true; break;
       case '--version': case '-v': opts.version = true; break;
