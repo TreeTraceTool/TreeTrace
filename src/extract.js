@@ -7,6 +7,7 @@ const KIND = {
   SCOPE: 'scope-change',
   CHECKPOINT: 'checkpoint',
   QUESTION: 'question',
+  REJECTION: 'rejection',
 };
 
 const CORRECTION_STRONG_OPENERS =
@@ -43,6 +44,34 @@ export function classifyPrompts(sessions) {
     for (const prompt of session.prompts) {
       const text = prompt.text;
       const words = text.split(/\s+/).filter(Boolean);
+
+      // v0.3: synthetic rejection-only prompts (text === '', isRejectionOnly flag
+      // set by parse.js when a tool-result rejection arrives before any text
+      // prompt). Route to kind:'rejection' directly, bypass dup/rerun/nudge
+      // folding, and keep them as their own nodes so the rejection signal is
+      // visible in the lineage instead of disappearing into a sibling.
+      if (prompt.isRejectionOnly) {
+        const node = {
+          id: null,
+          uuid: prompt.uuid,
+          parentUuid: prompt.parentUuid,
+          sessionId: session.sessionId,
+          ts: prompt.ts,
+          text: '',
+          title: makeRejectionTitle(prompt.rejections),
+          kind: KIND.REJECTION,
+          status: 'accepted',
+          nudges: 0,
+          afterInterruption: prompt.afterInterruption,
+          actions: prompt.actions || [],
+          thinking: prompt.thinking || 0,
+          rejections: prompt.rejections || [],
+          chars: 0,
+        };
+        nodes.push(node);
+        prevNode = node;
+        continue;
+      }
 
       if (prevNode && isDupOf(prevNode.text, text)) {
         if (text.length > prevNode.text.length) {
@@ -90,6 +119,7 @@ export function classifyPrompts(sessions) {
         afterInterruption: prompt.afterInterruption,
         actions: prompt.actions || [],
         thinking: prompt.thinking || 0,
+        rejections: prompt.rejections || [],
         chars: text.length,
       } : {
         id: null,
@@ -105,6 +135,7 @@ export function classifyPrompts(sessions) {
         afterInterruption: prompt.afterInterruption,
         actions: prompt.actions || [],
         thinking: prompt.thinking || 0,
+        rejections: prompt.rejections || [],
         chars: text.length,
       };
       if (node.kind === KIND.ROOT) rootAssigned = true;
@@ -113,6 +144,16 @@ export function classifyPrompts(sessions) {
     }
   }
   return nodes;
+}
+
+function makeRejectionTitle(rejections) {
+  if (!Array.isArray(rejections) || !rejections.length) return '[agent action rejected]';
+  const kinds = [...new Set(rejections.map((r) => r.kind))];
+  if (kinds.length === 1) {
+    const k = kinds[0].replace(/_/g, ' ');
+    return `Agent action rejected (${k})`;
+  }
+  return `Agent action rejected (${kinds.length} kinds)`;
 }
 
 function isDupOf(a, b) {
@@ -158,6 +199,10 @@ function mergeActions(node, prompt) {
   node.actions = node.actions || [];
   if (prompt.actions && prompt.actions.length) node.actions.push(...prompt.actions);
   if (prompt.thinking) node.thinking = (node.thinking || 0) + prompt.thinking;
+  if (Array.isArray(prompt.rejections) && prompt.rejections.length) {
+    node.rejections = node.rejections || [];
+    node.rejections.push(...prompt.rejections);
+  }
 }
 
 export { KIND };

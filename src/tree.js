@@ -108,12 +108,20 @@ function computeStats(sessions, nodes) {
   const filesTouched = new Set();
   let toolUses = 0;
   let interruptions = 0;
+  let rejections = 0;
+  const rejectionsByKind = Object.create(null);
   const timestamps = [];
   for (const s of sessions) {
     for (const m of s.stats.models) models.add(m);
     for (const f of s.stats.filesTouched) filesTouched.add(f);
     toolUses += s.stats.toolUses;
     interruptions += s.stats.interruptions;
+    rejections += s.stats.rejections || 0;
+    if (s.stats.rejectionsByKind) {
+      for (const [k, v] of Object.entries(s.stats.rejectionsByKind)) {
+        rejectionsByKind[k] = (rejectionsByKind[k] || 0) + v;
+      }
+    }
     if (s.firstTs) timestamps.push(s.firstTs);
     if (s.lastTs) timestamps.push(s.lastTs);
   }
@@ -127,6 +135,8 @@ function computeStats(sessions, nodes) {
     corrections: byKind['correction'] || 0,
     scopeChanges: byKind['scope-change'] || 0,
     checkpoints: byKind['checkpoint'] || 0,
+    rejections,
+    rejectionsByKind: { ...rejectionsByKind },
     abandonedBranches: abandonedRoots.length,
     nudges: nodes.reduce((acc, n) => acc + n.nudges, 0),
     interruptions,

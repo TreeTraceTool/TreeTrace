@@ -17,6 +17,7 @@ import { renderReportMarkdown, renderTerminalSummary } from '../src/report.js';
 import {
   analyzeTree,
   renderFailuresJson,
+  renderRejectionsJson,
   renderLessonsMarkdown,
   renderEvalsJsonl,
   renderMemoryMarkdown,
@@ -343,7 +344,7 @@ test('renderers: markdown, json, handoff are consistent and footer-credited', as
   assert.ok(md.includes('[treetrace]'));
 
   const json = renderJson(tree, { projectName: 'demo' });
-  assert.equal(json.schemaVersion, '0.2');
+  assert.equal(json.schemaVersion, '0.3');
   assert.equal(json.nodes.length, tree.nodes.length);
   assert.equal(json.edges.length, tree.nodes.filter((n) => n.parent).length);
   assert.ok(json.nodes.every((n) => n.id && n.kind && typeof n.text === 'string'));
@@ -377,7 +378,7 @@ test('rendering: markdown footer stamps the tool version when provided', async (
 test('analysis renderers produce failures, lessons, evals, and memory', async () => {
   const { tree } = await fixtureTree();
   const failures = renderFailuresJson(tree, { projectName: 'demo', generatedAt: '2026-01-01T00:00:00.000Z' });
-  assert.equal(failures.schemaVersion, '0.2');
+  assert.equal(failures.schemaVersion, '0.3');
   assert.ok(failures.failures.length >= 1);
   assert.ok(failures.correctionChains.length >= 1);
 
@@ -685,7 +686,7 @@ test('cli: default run writes analysis artifacts with redaction', async () => {
       assert.ok(existsSync(join(dir, file)), `${file} missing`);
     }
     const failures = JSON.parse(readFileSync(join(dir, '.treetrace/failures.json'), 'utf8'));
-    assert.equal(failures.schemaVersion, '0.2');
+    assert.equal(failures.schemaVersion, '0.3');
     assert.ok(failures.failures.length >= 1);
 
     const evalLine = readFileSync(join(dir, '.treetrace/evals.jsonl'), 'utf8').trim().split('\n')[0];
@@ -1086,7 +1087,7 @@ test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', 
 
     const list = responses.find((r) => r.id === 2);
     const names = list.result.tools.map((t) => t.name).sort();
-    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'security_summary', 'tree']);
+    assert.deepEqual(names, ['eval_candidates', 'handoff', 'lessons', 'rejections_summary', 'security_summary', 'tree']);
 
     const call = responses.find((r) => r.id === 3);
     assert.ok(call.result && Array.isArray(call.result.content), 'tools/call must return content array');
@@ -1936,6 +1937,309 @@ test('cli: --graph writes PROMPT_TREE_GRAPH.md with a mermaid flowchart', async 
     // Redaction gate still holds: the planted secret must not leak into the graph.
     assert.ok(!text.includes('sk-ant-api03-FAKEFAKEFAKEFAKEFAKEFAKE1234'), 'secret stays redacted');
     assert.ok(!text.includes('hunter2pass'), 'embedded credential stays redacted');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// --- v0.3 rejection / refusal / decline capture ---
+// Fixture: test/fixtures/claude-code-rejections.jsonl
+// All six rejection classes represented in one Claude Code JSONL session.
+
+const REJECTIONS_FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'claude-code-rejections.jsonl');
+
+async function loadRejectionsFixture() {
+  return parseSessionFile(REJECTIONS_FIXTURE, { sessionId: 'rejections-fixture' });
+}
+
+test('rejections: user_declined_tool captured from canonical tool_result text', async () => {
+  const session = await loadRejectionsFixture();
+  const all = session.prompts.flatMap((p) => p.rejections || []);
+  const declined = all.filter((r) => r.kind === 'user_declined_tool');
+  assert.equal(declined.length, 1, 'one user_declined_tool must be captured');
+  assert.equal(declined[0].source, 'tool_result');
+  assert.equal(declined[0].confidence, 1.0);
+  assert.equal(declined[0].toolUseId, 'toolu-0001');
+  assert.ok(declined[0].evidence && declined[0].evidence.includes("doesn't want to proceed"));
+});
+
+test('rejections: user_interrupt typed as a rejection AND counter still increments', async () => {
+  const session = await loadRejectionsFixture();
+  assert.ok(session.stats.interruptions >= 1, 'interruption counter must still increment');
+  const interrupts = session.prompts.flatMap((p) => p.rejections || []).filter((r) => r.kind === 'user_interrupt');
+  assert.equal(interrupts.length, 1);
+  assert.equal(interrupts[0].confidence, 1.0);
+  assert.equal(interrupts[0].source, 'text');
+});
+
+test('rejections: tool_execution_error captured from is_error tool_result', async () => {
+  const session = await loadRejectionsFixture();
+  const errs = session.prompts.flatMap((p) => p.rejections || []).filter((r) => r.kind === 'tool_execution_error');
+  assert.equal(errs.length, 1);
+  assert.equal(errs[0].toolUseId, 'toolu-0003');
+  assert.ok(errs[0].evidence.includes('cannot create directory'));
+});
+
+test('rejections: permission_denied captured from is_error tool_result with OS denial text', async () => {
+  const session = await loadRejectionsFixture();
+  const denied = session.prompts.flatMap((p) => p.rejections || []).filter((r) => r.kind === 'permission_denied');
+  assert.equal(denied.length, 1);
+  assert.equal(denied[0].toolUseId, 'toolu-0004');
+  assert.equal(denied[0].confidence, 0.85);
+  assert.ok(/permission denied/i.test(denied[0].evidence));
+});
+
+test('rejections: model_refusal captured from stop_reason: "refusal" at 0.95 confidence', async () => {
+  const session = await loadRejectionsFixture();
+  const stop = session.prompts.flatMap((p) => p.rejections || []).filter(
+    (r) => r.kind === 'model_refusal' && r.source === 'stop_reason'
+  );
+  assert.equal(stop.length, 1);
+  assert.equal(stop[0].confidence, 0.95);
+});
+
+test('rejections: model_refusal captured from text heuristic at 0.7 confidence', async () => {
+  const session = await loadRejectionsFixture();
+  const text = session.prompts.flatMap((p) => p.rejections || []).filter(
+    (r) => r.kind === 'model_refusal' && r.source === 'text_heuristic'
+  );
+  assert.equal(text.length, 1);
+  assert.equal(text[0].confidence, 0.7);
+  assert.ok(/can'?t help/i.test(text[0].evidence));
+});
+
+test('rejections: user_text_decline captured when prompt opens with "stop, don\'t do that"', async () => {
+  const session = await loadRejectionsFixture();
+  const declines = session.prompts.flatMap((p) => p.rejections || []).filter((r) => r.kind === 'user_text_decline');
+  assert.equal(declines.length, 1);
+  assert.equal(declines[0].confidence, 0.8);
+  // The decline prompt must still flow through as a real prompt with text preserved.
+  const declinePrompt = session.prompts.find((p) => (p.rejections || []).some((r) => r.kind === 'user_text_decline'));
+  assert.ok(declinePrompt, 'decline prompt must exist in session.prompts');
+  assert.ok(/stop, don'?t do that/i.test(declinePrompt.text), 'text is preserved on the prompt');
+});
+
+test('rejections: session.stats.rejections count and rejectionsByKind breakdown are populated', async () => {
+  const session = await loadRejectionsFixture();
+  const expectedKinds = {
+    user_declined_tool: 1,
+    user_interrupt: 1,
+    tool_execution_error: 1,
+    permission_denied: 1,
+    model_refusal: 2, // stop_reason + text_heuristic
+    user_text_decline: 1,
+  };
+  const expectedTotal = Object.values(expectedKinds).reduce((a, b) => a + b, 0);
+  assert.equal(session.stats.rejections, expectedTotal, 'session.stats.rejections counts every captured rejection');
+  assert.deepEqual(session.stats.rejectionsByKind, expectedKinds);
+});
+
+test('rejections: rejection-only synthetic prompt is created when a tool_result rejection arrives with no current text prompt', async () => {
+  // A fresh session whose very first record is a tool_result rejection. parse.js
+  // must synthesize a rejection-only prompt (text:'', isRejectionOnly:true) so the
+  // signal is never silently lost. This mirrors the "user opened agent and
+  // immediately rejected something" case.
+  const { parseSessionFile: parse } = await import('../src/parse.js');
+  const tmp = mkdtempSync(join(tmpdir(), 'rej-synth-'));
+  const path = join(tmp, 'synth.jsonl');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-x', content: "The user doesn't want to proceed with this tool use. The user wants you to do something else.", is_error: true }] },
+      uuid: 'u-synth-1',
+      parentUuid: null,
+      timestamp: '2026-06-18T11:00:00.000Z',
+      sessionId: 'synth',
+    }) + '\n'
+  );
+  try {
+    const s = await parse(path, { sessionId: 'synth' });
+    const synth = s.prompts.find((p) => p.isRejectionOnly);
+    assert.ok(synth, 'a synthetic rejection-only prompt must be created');
+    assert.equal(synth.text, '');
+    assert.equal(synth.rejections.length, 1);
+    assert.equal(synth.rejections[0].kind, 'user_declined_tool');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('rejections: rejection-only synthetic prompts get kind:"rejection" downstream', async () => {
+  const { parseSessionFile: parse } = await import('../src/parse.js');
+  const tmp = mkdtempSync(join(tmpdir(), 'rej-kind-'));
+  const path = join(tmp, 'k.jsonl');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-y', content: "The user doesn't want to proceed with this tool use.", is_error: true }] },
+      uuid: 'u-kind-1',
+      parentUuid: null,
+      timestamp: '2026-06-18T12:00:00.000Z',
+      sessionId: 'kindsession',
+    }) + '\n'
+  );
+  try {
+    const session = await parse(path, { sessionId: 'kindsession' });
+    const nodes = classifyPrompts([session]);
+    assert.equal(nodes.length, 1);
+    assert.equal(nodes[0].kind, 'rejection', 'synthetic rejection-only node gets kind:"rejection", not root');
+    assert.ok(nodes[0].title && /rejected/i.test(nodes[0].title), 'title describes the rejection');
+    assert.equal(nodes[0].rejections.length, 1);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('rejections: each rejection becomes a failure signal of the mapped type', async () => {
+  const session = await loadRejectionsFixture();
+  const nodes = classifyPrompts([session]);
+  const tree = buildTree([session], nodes);
+  analyzeTree(tree);
+  const types = new Set(tree.analysis.failures.map((f) => f.type));
+  assert.ok(types.has('user_rejected_action'), 'user_declined_tool/user_interrupt/user_text_decline -> user_rejected_action');
+  assert.ok(types.has('tool_execution_failed'), 'tool_execution_error -> tool_execution_failed');
+  assert.ok(types.has('permission_denied'), 'permission_denied -> permission_denied');
+  assert.ok(types.has('model_refused'), 'model_refusal -> model_refused');
+  // Two model_refusal rejections on different nodes -> dedup by failureNode id means
+  // at least one model_refused failure exists.
+  const refusedCount = tree.analysis.failures.filter((f) => f.type === 'model_refused').length;
+  assert.ok(refusedCount >= 1, 'model_refused failure signal is present');
+});
+
+test('rejections: lessons and eval candidates are generated for rejection-derived failures', async () => {
+  const session = await loadRejectionsFixture();
+  const nodes = classifyPrompts([session]);
+  const tree = buildTree([session], nodes);
+  analyzeTree(tree);
+  const lessonTitles = new Set(tree.analysis.lessons.map((l) => l.title));
+  assert.ok(lessonTitles.has('Confirm proposed actions before executing'), 'user_rejected_action lesson is generated');
+  assert.ok(lessonTitles.has('Rephrase refused requests instead of repeating them'), 'model_refused lesson is generated');
+  const evalTypes = new Set(tree.analysis.evalCandidates.map((e) => e.type));
+  assert.ok(evalTypes.has('tool_permission_regression'), 'tool_permission_regression eval is generated');
+  assert.ok(evalTypes.has('refusal_handling'), 'refusal_handling eval is generated');
+});
+
+test('rejections: renderRejectionsJson returns a flattened, sorted, byKind-summarized view', async () => {
+  const session = await loadRejectionsFixture();
+  const nodes = classifyPrompts([session]);
+  const tree = buildTree([session], nodes);
+  const view = renderRejectionsJson(tree, { projectName: 'rejections-fixture' });
+  assert.equal(view.schemaVersion, '0.3');
+  assert.equal(view.summary.total, 7);
+  assert.equal(view.summary.byKind.model_refusal, 2);
+  assert.equal(view.summary.byKind.user_declined_tool, 1);
+  assert.ok(Array.isArray(view.rejections));
+  assert.equal(view.rejections.length, 7);
+  // Every entry has a nodeId pointing back into the tree.
+  assert.ok(view.rejections.every((r) => typeof r.nodeId === 'string'));
+  // Sorted by ts ascending.
+  const ts = view.rejections.map((r) => Date.parse(r.ts)).filter(Number.isFinite);
+  const sorted = [...ts].sort((a, b) => a - b);
+  assert.deepEqual(ts, sorted);
+});
+
+test('rejections: O(N) preserved - the rejection surfacing pass does not regress quadratic scaling', async () => {
+  // Build a synthetic tree with N nodes each carrying R rejections. If the
+  // surfacing pass is O(N*R) the test completes in well under a second even at
+  // N=5000. A quadratic regression would blow past the timeout.
+  const N = 5000;
+  const R = 3;
+  const session = {
+    sessionId: 'perf',
+    prompts: [],
+    firstTs: null,
+    lastTs: null,
+    stats: { models: [], filesTouched: [], rejections: 0, rejectionsByKind: {}, interruptions: 0 },
+  };
+  for (let i = 0; i < N; i++) {
+    const rejections = [];
+    for (let j = 0; j < R; j++) {
+      rejections.push({ kind: 'user_declined_tool', source: 'tool_result', confidence: 1.0, toolUseId: `t-${i}-${j}`, tool: null, ts: null, evidence: `evidence ${i}-${j}` });
+    }
+    session.prompts.push({
+      uuid: `p-${i}`,
+      parentUuid: i === 0 ? null : `p-${i - 1}`,
+      ts: new Date(i * 1000).toISOString(),
+      text: `prompt ${i}`,
+      hasImage: false,
+      hadToolResultContext: false,
+      afterInterruption: false,
+      actions: [],
+      thinking: 0,
+      rejections,
+    });
+  }
+  const start = Date.now();
+  const nodes = classifyPrompts([session]);
+  const tree = buildTree([session], nodes);
+  analyzeTree(tree);
+  const elapsed = Date.now() - start;
+  // Threshold rationale: a quadratic regression at this scale would take
+  // hours (5000x slower than linear). 15s is well above realistic linear cost
+  // (~0.7ms per addFailure) and well below the quadratic danger zone.
+  assert.ok(elapsed < 15000, `analyzeTree on ${N} nodes x ${R} rejections must complete in under 15s (got ${elapsed}ms)`);
+  // Spot-check that rejections actually surfaced.
+  assert.ok(tree.analysis.failures.length >= N, 'every node produced at least one failure signal');
+});
+
+test('rejections: redaction gate at the CLI layer catches secrets in rejection evidence', async () => {
+  // Rejection evidence can carry anything the user or shell returned, including
+  // a leaked secret. parse.js captures the evidence verbatim (truncated), and
+  // the renderer does not redact. The CLI's redaction gate (applyDecisions +
+  // shadow scan) must catch it before .treetrace/rejections.json is written.
+  const tmp = mkdtempSync(join(tmpdir(), 'rej-redact-'));
+  const path = join(tmp, 'r.jsonl');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu-s', content: "The user doesn't want to proceed with this tool use. The value was sk-ant-api03-FAKEFAKEFAKEFAKEFAKEFAKE1234.", is_error: true }] },
+      uuid: 'u-r-1',
+      parentUuid: null,
+      timestamp: '2026-06-18T13:00:00.000Z',
+      sessionId: 'redact',
+    }) + '\n'
+  );
+  const dir = mkdtempSync(join(tmpdir(), 'rej-redact-out-'));
+  try {
+    await main(['--file', path, '--dir', dir, '--rejections', '--redact-auto', '--quiet']);
+    const out = readFileSync(join(dir, '.treetrace', 'rejections.json'), 'utf8');
+    assert.ok(!out.includes('sk-ant-api03-FAKEFAKEFAKEFAKEFAKEFAKE1234'), 'raw secret must not appear in the written rejections.json');
+    assert.ok(out.includes('[REDACTED'), 'a redacted placeholder must appear in its place');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('rejections: cli --rejections writes .treetrace/rejections.json and prints to stdout', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-rej-cli-'));
+  try {
+    await main(['--file', REJECTIONS_FIXTURE, '--dir', dir, '--rejections', '--redact-auto', '--quiet']);
+    const p = join(dir, '.treetrace', 'rejections.json');
+    assert.ok(existsSync(p), '.treetrace/rejections.json must be written');
+    const text = readFileSync(p, 'utf8');
+    const parsed = JSON.parse(text);
+    assert.equal(parsed.schemaVersion, '0.3');
+    assert.equal(parsed.summary.total, 7);
+    assert.equal(parsed.summary.byKind.model_refusal, 2);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('rejections: --from claude works as an explicit --from value (Phase 0 false-advertising fix)', async () => {
+  // The TOOLS array has always advertised 'claude' but the adapter switch never
+  // handled it explicitly. ingestFile routes --from claude through parseSessionFile,
+  // so this end-to-end check confirms it works and produces prompts+rejections.
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-claude-from-'));
+  try {
+    await main(['--from', 'claude', '--file', REJECTIONS_FIXTURE, '--dir', dir, '--json', '--redact-auto', '--quiet']);
+    // No assertion on stdout: success means no USAGE error. If --from claude
+    // were rejected (as it would be for unknown --from values) main() would
+    // throw with ExitCode.USAGE before reaching this line.
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

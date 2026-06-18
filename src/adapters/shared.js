@@ -8,6 +8,8 @@ export function emptyStats() {
     inputTokens: 0,
     outputTokens: 0,
     interruptions: 0,
+    rejections: 0,
+    rejectionsByKind: Object.create(null),
   };
 }
 
@@ -34,6 +36,7 @@ export function newSession(path, sessionId) {
 export function finalizeSession(session) {
   session.stats.models = [...session.stats.models];
   session.stats.filesTouched = [...session.stats.filesTouched];
+  session.stats.rejectionsByKind = { ...session.stats.rejectionsByKind };
   if (session.customTitle) session.title = session.customTitle;
   return session;
 }
@@ -63,6 +66,7 @@ export function pushTurn(session, idx, text, ts, { hasImage = false, hadToolResu
     afterInterruption: false,
     actions: [],
     thinking: 0,
+    rejections: [],
   };
   session.prompts.push(prompt);
   session._currentPrompt = prompt;
@@ -76,6 +80,19 @@ export function addAction(session, action) {
 
 export function addThinking(session, n = 1) {
   if (session._currentPrompt) session._currentPrompt.thinking += n;
+}
+
+// Adapter-side helper mirroring addAction/addThinking. Adapters that read from
+// sources which surface tool errors or permission denials (Codex rollouts,
+// Cursor toolCalls[].error, Gemini finishReason:SAFETY, etc.) can call this so
+// their rejections flow through the same schema path as native Claude Code.
+export function addRejection(session, rejection) {
+  if (!session._currentPrompt || !rejection || typeof rejection.kind !== 'string') return;
+  if (!Array.isArray(session._currentPrompt.rejections)) session._currentPrompt.rejections = [];
+  session._currentPrompt.rejections.push(rejection);
+  session.stats.rejections = (session.stats.rejections || 0) + 1;
+  session.stats.rejectionsByKind = session.stats.rejectionsByKind || Object.create(null);
+  session.stats.rejectionsByKind[rejection.kind] = (session.stats.rejectionsByKind[rejection.kind] || 0) + 1;
 }
 
 export function flattenParts(parts) {

@@ -2,6 +2,27 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.8.0 - 2026-06-18
+
+### Added
+
+- Typed rejection, refusal, and decline capture (schema v0.3). TreeTrace now records six classes of human-steering event that previously vanished from the lineage: a user declining a proposed tool action (`user_declined_tool`), an interrupt (`user_interrupt`), a typed decline like "stop, don't do that" (`user_text_decline`), a tool execution error (`tool_execution_error`), an environment permission denial (`permission_denied`), and a model refusal (`model_refusal`, captured from both `stop_reason: "refusal"` at 0.95 confidence and refusal text at 0.7). Each rejection carries kind, source, confidence, tool-use id, timestamp, and redacted evidence. Native Claude Code JSONL is fully wired; the other adapters gain an `addRejection` helper in `adapters/shared.js` for per-source wiring in later releases. Detection patterns are named, individually testable regex pieces composed at load time, following the v0.7.0 precedent for security intent and risky-command detection.
+- `--rejections` CLI flag. Mirrors `--failures` / `--lessons` / `--security` and writes `.treetrace/rejections.json`, a flattened, timestamp-sorted ledger of every captured rejection with a `byKind` summary. Each entry joins back to its source node id so consumers can locate it in the tree.
+- Read-only MCP `rejections_summary` tool. The MCP server gains a sixth read-only tool that returns the same rejection view as `--rejections`, so an agent can ask "what did the human reject in this session?" without leaving the protocol. Same no-arguments, no-mutations, redaction-shadow-scan-gated shape as the existing five tools.
+- Four new failure types derived from rejections: `user_rejected_action`, `tool_execution_failed`, `model_refused`, `permission_denied`. Each generates a lesson and an eval candidate of the matching type (`tool_permission_regression`, `tool_error_recovery`, `refusal_handling`), so the same failure-to-eval-to-handoff loop that existed for security and scope drift now exists for rejections.
+- `rejection` as a new PromptNode `kind` for synthetic nodes that exist only to carry a rejection signal (e.g. a tool-result rejection that arrived before any text prompt). Such nodes have empty `text`, a derived `title`, and one or more entries in `rejections`.
+
+### Changed
+
+- Schema version bumped from `0.2` to `0.3`. Additive only; consumers that only understand v0.2 can keep reading `nodes` and `edges` and ignore `rejections`. The bump is centralized in `src/config.js` and propagates to every writer (per the v0.7.0 single-source change).
+- The redaction gate now scans `node.rejections[].evidence` alongside prompt text and action bodies, and applies the same redaction decisions to it. A secret in a tool_result error message or refusal text is now caught before any written artifact. Covered by a regression test.
+- The CLI `--from claude` value is now honored explicitly instead of falling through to the "unknown tool" error. The `TOOLS` array has always advertised `claude`; this closes the false-advertising gap end-to-end.
+- `flattenUserContent` now returns tool_result contents (`toolResults: [{ toolUseId, isError, content, contentType }]`) instead of just a count, so rejection classification has the text it needs.
+
+### Performance
+
+- Rejection surfacing stays O(N) over nodes times O(R) over rejections per node (R bounded by tool blocks per turn). The pass deliberately does not call `nearestCorrectionAfter` / `nearestAcceptedAfter` for rejection-derived failures (each is O(N) and would reintroduce the quadratic scaling the v0.7.0 release eliminated on rejection-heavy sessions). A rejection IS the failure event; its resolution is implicit in the next accepted turn rather than something we chase. Covered by a 5000-node × 3-rejection regression test that completes in well under the 15s threshold.
+
 ## 0.7.0 - 2026-06-18
 
 ### Added

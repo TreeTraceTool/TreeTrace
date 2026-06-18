@@ -15,7 +15,32 @@ const FAILURE_TYPES = new Set([
   'format_violation',
   'user_frustration',
   'abandoned_path',
+  // v0.3 rejection-derived failure types
+  'user_rejected_action',
+  'tool_execution_failed',
+  'model_refused',
+  'permission_denied',
 ]);
+
+// Maps a Rejection.kind (v0.3) to a failure type. user_* rejections all funnel
+// into user_rejected_action because they are variants of the same human-steering
+// event: the agent proposed or did something and the human stopped it.
+const REJECTION_KIND_TO_FAILURE_TYPE = {
+  user_declined_tool: 'user_rejected_action',
+  user_interrupt: 'user_rejected_action',
+  user_text_decline: 'user_rejected_action',
+  tool_execution_error: 'tool_execution_failed',
+  permission_denied: 'permission_denied',
+  model_refusal: 'model_refused',
+};
+
+// tier from a rejection confidence. Matches the security-signal banding.
+function tierForRejection(confidence) {
+  if (confidence >= 0.95) return 'verified';
+  if (confidence >= 0.8) return 'high';
+  if (confidence >= 0.65) return 'confirmed';
+  return 'inferred';
+}
 
 const CORRECTION_HINT =
   /\b(no|stop|scrap|not that|you forgot|you ignored|that's wrong|that is wrong|i said|instead|redo|re do|go back|wrong|doesn'?t work|didn'?t work|still (failing|broken|wrong|bad)|not what i (asked|wanted|meant))\b/i;
@@ -402,6 +427,36 @@ export function analyzeTree(tree) {
 
   const securityNodeIds = new Set();
   tree.nodes.forEach((node, index) => {
+    // v0.3: rejection surfacing pass. Each captured rejection becomes a failure
+    // signal of the mapped type. Rejection failures do not call
+    // nearestCorrectionAfter / nearestAcceptedAfter (each O(N), which would
+    // regress the v0.7.0 O(N) assembly guarantee on rejection-heavy sessions):
+    // a rejection IS the failure event, and its resolution is implicit in the
+    // next accepted turn rather than something we need to chase. Single pass,
+    // O(N) over nodes times O(R) over rejections per node, where R is bounded
+    // by the number of tool blocks per turn. Identical failure type on the same
+    // node merges into the existing record via addFailure's dedup-by-key path.
+    if (Array.isArray(node.rejections) && node.rejections.length) {
+      for (const r of node.rejections) {
+        const type = REJECTION_KIND_TO_FAILURE_TYPE[r.kind];
+        if (!type) continue;
+        const tier = tierForRejection(r.confidence || 0);
+        const ev = r.evidence
+          ? `${r.kind} (${r.source || 'tool_result'}): "${quote(r.evidence)}"`
+          : `${r.kind} (${r.source || 'stop_reason'})`;
+        addFailure({
+          type,
+          confidence: r.confidence || 0.7,
+          tier,
+          failureNode: node,
+          correctionNode: null,
+          resolvedNode: null,
+          evidence: ev,
+          summary: summarizeRejection(r, node),
+        });
+      }
+    }
+
     const secActs = securityActions(node);
     if (secActs.length) {
       // P1: corroborating co-signals -- surface class on a touched file, and a human
@@ -564,6 +619,48 @@ export function renderFailuresJson(tree, opts = {}) {
     summary: analysis.summary,
     failures: analysis.failures,
     correctionChains: analysis.correctionChains,
+  };
+}
+
+// v0.3: flattened rejection view for --rejections CLI flag and MCP tool. Walks
+// nodes once (O(N) over nodes times O(R) over rejections per node) and joins
+// each rejection back to its source node id so consumers can locate it in the
+// tree. The failure-signal view in renderFailuresJson already includes the
+// derived failures; this view is the raw rejection ledger.
+export function renderRejectionsJson(tree, opts = {}) {
+  analyzeTree(tree);
+  const out = [];
+  const byKind = Object.create(null);
+  for (const node of tree.nodes) {
+    if (!Array.isArray(node.rejections) || !node.rejections.length) continue;
+    for (const r of node.rejections) {
+      out.push({
+        nodeId: node.id,
+        kind: r.kind,
+        source: r.source || null,
+        confidence: r.confidence,
+        toolUseId: r.toolUseId || null,
+        tool: r.tool || null,
+        ts: r.ts || node.ts || null,
+        evidence: r.evidence || null,
+      });
+      byKind[r.kind] = (byKind[r.kind] || 0) + 1;
+    }
+  }
+  out.sort((a, b) => {
+    const ta = a.ts ? Date.parse(a.ts) : NaN;
+    const tb = b.ts ? Date.parse(b.ts) : NaN;
+    if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+    return (a.nodeId || '').localeCompare(b.nodeId || '');
+  });
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    project: projectBlock(opts),
+    summary: {
+      total: out.length,
+      byKind: { ...byKind },
+    },
+    rejections: out,
   };
 }
 
@@ -1047,6 +1144,10 @@ function lessonFor(type, { evidence = '', summary = '' } = {}) {
     format_violation: 'Preserve requested output formats',
     user_frustration: 'Escalate when user frustration appears',
     abandoned_path: 'Avoid abandoned paths unless explicitly revived',
+    user_rejected_action: 'Confirm proposed actions before executing',
+    tool_execution_failed: 'Validate tool inputs before executing',
+    model_refused: 'Rephrase refused requests instead of repeating them',
+    permission_denied: 'Pre-flight check filesystem and shell permissions',
   };
   const guidance = {
     ignored_constraint: 'Future agents should carry explicit user constraints forward as high-priority requirements.',
@@ -1062,6 +1163,10 @@ function lessonFor(type, { evidence = '', summary = '' } = {}) {
     format_violation: 'Future agents should preserve requested output formats exactly unless the user approves a change.',
     user_frustration: 'Future agents should treat frustration as a signal to slow down, verify assumptions, and correct course.',
     abandoned_path: 'Future agents should avoid resurrecting abandoned branches unless the user explicitly asks for them.',
+    user_rejected_action: 'Future agents should not retry a tool action the user just declined without first explaining why the action is still worth taking.',
+    tool_execution_failed: 'Future agents should validate command inputs and surface expected errors before running shell or write tools, instead of discovering failures after execution.',
+    model_refused: 'Future agents should treat a refusal as a signal to rephrase or descope, not to retry the same request verbatim; if the user confirms the request is legitimate, surface the refusal reason.',
+    permission_denied: 'Future agents should pre-flight check that required files, commands, or resources are accessible before attempting an action that needs them.',
   };
   const base = guidance[type] || 'Future agents should preserve this correction.';
   const concrete = String(evidence || summary || '').replace(/\s+/g, ' ').trim();
@@ -1077,6 +1182,9 @@ function evalTypeFor(type) {
   if (type === 'ignored_constraint' || type === 'format_violation') return 'constraint_preservation';
   if (type === 'wrong_tool_choice' || type === 'dependency_or_environment_mismatch') return 'tool_choice_regression';
   if (type === 'abandoned_path') return 'correction_adherence';
+  if (type === 'user_rejected_action' || type === 'permission_denied') return 'tool_permission_regression';
+  if (type === 'tool_execution_failed') return 'tool_error_recovery';
+  if (type === 'model_refused') return 'refusal_handling';
   return 'instruction_following_regression';
 }
 
@@ -1084,6 +1192,11 @@ function evalTaskFor(type) {
   if (type === 'security_or_privacy_risk') return 'Continue development while preserving privacy and redaction boundaries.';
   if (type === 'scope_drift') return 'Continue development without drifting outside the corrected scope.';
   if (type === 'format_violation') return 'Continue development while preserving the requested output format.';
+  if (type === 'user_rejected_action' || type === 'permission_denied') {
+    return 'Continue development without re-attempting tool actions the user or environment has just rejected.';
+  }
+  if (type === 'tool_execution_failed') return 'Continue development while validating tool inputs before execution.';
+  if (type === 'model_refused') return 'Continue development by rephrasing refused requests rather than repeating them.';
   return 'Continue development while preserving the corrected direction from the session lineage.';
 }
 
@@ -1098,6 +1211,26 @@ function expectedBehaviorFor(type) {
 
 function failureModeFor(type) {
   return `Agent repeats ${type.replace(/_/g, ' ')} despite prior correction.`;
+}
+
+function summarizeRejection(r, node) {
+  const subject = truncate(node && node.title ? node.title : 'a previous turn', 90);
+  switch (r.kind) {
+    case 'user_declined_tool':
+      return `The user declined a proposed tool action near "${subject}".`;
+    case 'user_interrupt':
+      return `The user interrupted the agent mid-response near "${subject}".`;
+    case 'user_text_decline':
+      return `The user explicitly told the agent to stop or not proceed near "${subject}".`;
+    case 'tool_execution_error':
+      return `A tool execution returned an error near "${subject}".`;
+    case 'permission_denied':
+      return `A tool action was denied by the environment (permission denied) near "${subject}".`;
+    case 'model_refusal':
+      return `The model refused to proceed near "${subject}".`;
+    default:
+      return `A ${r.kind || 'rejection'} was captured near "${subject}".`;
+  }
 }
 
 function confidenceLabel(score) {
