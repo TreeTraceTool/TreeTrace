@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { parseSessionFile, parsePlainTranscript, classifySpecialUserText } from '../src/parse.js';
 import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
-import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings } from '../src/redact.js';
+import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings, isGitShaCandidate } from '../src/redact.js';
 import { renderMarkdown, promptPack } from '../src/render-md.js';
 import { renderMermaid, isSummaryByDefault, SUMMARY_NODE_THRESHOLD } from '../src/render-mermaid.js';
 import { renderJson } from '../src/render-json.js';
@@ -199,6 +199,41 @@ test('redaction: uuids and long lowercase identifiers are not flagged as high-en
     const hits = scanText(benign).filter((f) => f.ruleId === 'high-entropy-token');
     assert.equal(hits.length, 0, `false positive high-entropy flag on ${benign}`);
   }
+});
+
+test('redaction: git object hashes are classified as candidates only in a git context', () => {
+  const sha1 = '0123456789abcdef0123456789abcdef01234567';
+  const sha256hex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  assert.ok(isGitShaCandidate(sha1, `commit ${sha1}`, 7), 'commit <sha1> should be a candidate');
+  assert.ok(isGitShaCandidate(sha256hex, `git tree ${sha256hex}`, 9), 'git tree <sha256> should be a candidate');
+  assert.ok(isGitShaCandidate(sha1, `${sha1} fix the parser\n`, 0), 'oneline sha should be a candidate');
+  assert.ok(!isGitShaCandidate(sha1, `token=${sha1} end`, 6), 'token= context is not git');
+  assert.ok(!isGitShaCandidate(sha256hex, `session_hex=${sha256hex}`, 12), 'session_hex= context is not git');
+  assert.ok(!isGitShaCandidate('0123456789abcdef0123456789abcdef', `commit ${'0123456789abcdef0123456789abcdef'}`, 7), '32-hex is not a git object id');
+});
+
+test('redaction: --keep-git-shas keeps git hashes but stays fail-closed for other hex', async () => {
+  const sha1 = '0123456789abcdef0123456789abcdef01234567';
+  const secret = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const text = `commit ${sha1}\nmy key is session_hex=${secret} ok`;
+  const findings = scanText(text);
+  const git = findings.find((f) => f.match === sha1);
+  const sec = findings.find((f) => f.match === secret);
+  assert.ok(git && git.gitShaCandidate, 'git sha must be flagged as a candidate');
+  assert.ok(sec && !sec.gitShaCandidate, 'session_hex secret must NOT be a git candidate');
+
+  const { decisions } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true, keepGitShas: true });
+  assert.equal(decisions[sha256(sha1)].action, 'keep', 'git object hash should be kept');
+  assert.equal(decisions[sha256(sha1)].ruleId, 'git-commit-sha', 'kept under git-commit-sha rule');
+  assert.equal(decisions[sha256(secret)].action, 'redact', 'non-git hex must still be redacted');
+
+  const { decisions: d2 } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true });
+  assert.equal(d2[sha256(sha1)].action, 'redact', 'default must redact git sha too (fail-closed)');
+
+  const cleaned = applyDecisions(text, findings, decisions);
+  assert.ok(cleaned.includes(sha1), 'kept git sha should survive in output');
+  assert.ok(!cleaned.includes(secret), 'non-git secret must be redacted');
+  assert.equal(shadowScan(cleaned, decisions).length, 0, 'shadow scan must be clean after keep + redact');
 });
 
 test('redaction: end-to-end hex secret leaves no raw hex in any artifact', async () => {
