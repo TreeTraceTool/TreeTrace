@@ -50,10 +50,10 @@ export function buildTree(sessions, nodes) {
   for (const session of ordered) {
     const sNodes = nodesBySession.get(session.sessionId) || [];
     if (!sNodes.length) continue;
-    for (const node of sNodes) {
-      if (!node.parent && node !== sNodes[0]) {
-
-        node.parent = sNodes[sNodes.indexOf(node) - 1];
+    for (let i = 0; i < sNodes.length; i++) {
+      const node = sNodes[i];
+      if (!node.parent && i > 0) {
+        node.parent = sNodes[i - 1];
       }
     }
     if (!sNodes[0].parent && prevTail) {
@@ -118,6 +118,7 @@ function computeStats(sessions, nodes) {
     if (s.lastTs) timestamps.push(s.lastTs);
   }
 
+  const sortedTs = timestamps.length ? [...timestamps].sort() : [];
   return {
     promptCount: nodes.length,
     rawPromptCount: sessions.reduce((acc, s) => acc + (s.prompts ? s.prompts.length : 0), 0),
@@ -133,7 +134,7 @@ function computeStats(sessions, nodes) {
     filesTouched: filesTouched.size,
     models: [...models],
     days: daySpan(timestamps),
-    firstTs: timestamps.length ? timestamps.slice().sort()[0] : null,
-    lastTs: timestamps.length ? timestamps.slice().sort().at(-1) : null,
+    firstTs: sortedTs[0] ?? null,
+    lastTs: sortedTs.at(-1) ?? null,
   };
 }

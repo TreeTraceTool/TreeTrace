@@ -247,7 +247,7 @@ function badPathEpisode(node) {
 
 export function analyzeTree(tree) {
   if (tree.analysis) return tree.analysis;
-
+  _tokenCache = new WeakMap();
   const modelsSeen = new Set();
   let thinkingBlocks = 0;
   for (const node of tree.nodes) {
@@ -833,7 +833,11 @@ function sharedFiles(a, b) {
   return false;
 }
 
+let _tokenCache = new WeakMap();
 function tokenSet(node) {
+  if (!node) return new Set();
+  const cached = _tokenCache.get(node);
+  if (cached) return cached;
   const out = new Set();
   const harvest = (s) => {
     for (const raw of String(s || '').toLowerCase().match(/[a-z][a-z0-9_-]{2,}/g) || []) {
@@ -847,6 +851,7 @@ function tokenSet(node) {
   for (const a of node.actions || []) {
     if (a.file) harvest(String(a.file).replace(/[\\/.+_-]+/g, ' '));
   }
+  _tokenCache.set(node, out);
   return out;
 }
 
