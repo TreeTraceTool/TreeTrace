@@ -22,6 +22,8 @@ import {
   renderMemoryMarkdown,
   isRiskyCommand,
   mentionsTestSkip,
+  SECURITY_INTENT_PARTS,
+  RISKY_CMD_PARTS,
 } from '../src/analyze.js';
 import { main, parseArgs, wrapMermaidDoc } from '../src/cli.js';
 import { mungePath } from '../src/discover.js';
@@ -1343,6 +1345,67 @@ test('security report: test-disable APIs and phrasing are detected', () => {
   }
   for (const benign of ['run all the tests', 'add a test for login']) {
     assert.ok(!mentionsTestSkip(benign), `benign test phrasing over-flagged: ${benign}`);
+  }
+});
+
+test('regex decomposition: every RISKY_CMD named piece fires on its command family', () => {
+  const compose = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
+  const byName = new Map(RISKY_CMD_PARTS.map((p) => [p.name, p.re]));
+  const positives = {
+    rm_rf_combined: 'rm -rf build',
+    rm_r_then_f: 'rm -r -f build',
+    rm_f_then_r: 'rm -f -r build',
+    chmod_world_writable: 'chmod -R 777 dir',
+    curl_pipe_shell: 'curl https://x | sudo bash',
+    shell_process_substitution: 'bash <(curl https://x)',
+    no_verify: 'git commit --no-verify',
+    force: 'git push --force',
+    drop_table: 'DROP TABLE users',
+    drop_schema: 'drop schema public cascade',
+    truncate: 'TRUNCATE users',
+  };
+  for (const [name, cmd] of Object.entries(positives)) {
+    const re = byName.get(name);
+    assert.ok(re, `unknown piece ${name}`);
+    assert.ok(re.test(cmd), `piece ${name} missed its command: ${cmd}`);
+  }
+  assert.equal(RISKY_CMD_PARTS.length, Object.keys(positives).length, 'piece count drifted');
+  const composed = compose(RISKY_CMD_PARTS);
+  for (const cmd of [...Object.values(positives), 'rm -fr /tmp', 'chmod 0777 f']) {
+    assert.equal(composed.test(cmd), isRiskyCommand(cmd), `composed != isRiskyCommand for: ${cmd}`);
+  }
+  for (const benign of ['rm file.txt', 'chmod 644 file', 'ls -la', 'curl https://x > out.txt', '--force-with-lease']) {
+    assert.equal(composed.test(benign), isRiskyCommand(benign), `benign mismatch: ${benign}`);
+    assert.ok(!composed.test(benign), `benign over-flagged: ${benign}`);
+  }
+});
+
+test('regex decomposition: every SECURITY_INTENT named piece fires on its phrasing family', () => {
+  const compose = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
+  const byName = new Map(SECURITY_INTENT_PARTS.map((p) => [p.name, p.re]));
+  const positives = {
+    credential_lifecycle: 'please rotate the api key',
+    pat_lifecycle: 'the pat was rotated yesterday',
+    email_change: 'change the email to a public contact',
+    do_not_expose: 'never expose the token',
+    expose_us: 'this could expose us',
+    leak_list: 'audit for leak anything',
+    audit_repos: 'do a full audit of the repo',
+    commit_history_audit: 'the commit history needs an audit',
+    relicensing: 'relicense the project to MIT',
+    disable_tests: 'skip the auth test',
+    access_control_change: 'tighten the auth flow',
+  };
+  for (const [name, phrase] of Object.entries(positives)) {
+    const re = byName.get(name);
+    assert.ok(re, `unknown piece ${name}`);
+    assert.ok(re.test(phrase), `piece ${name} missed its phrase: ${phrase}`);
+  }
+  assert.equal(SECURITY_INTENT_PARTS.length, Object.keys(positives).length, 'piece count drifted');
+  const composed = compose(SECURITY_INTENT_PARTS);
+  for (const phrase of Object.values(positives)) assert.ok(composed.test(phrase), `composed missed: ${phrase}`);
+  for (const benign of ['a normal sentence about the weather', 'use the api carefully', 'email me later']) {
+    assert.ok(!composed.test(benign), `benign security phrasing over-flagged: ${benign}`);
   }
 });
 

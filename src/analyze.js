@@ -21,7 +21,22 @@ const CORRECTION_HINT =
 const FRUSTRATION_HINT =
   /\b(sucks|awful|god awful|what the heck|wtf|mad|angry|frustrat|not suffic|i don'?t trust|terrible|bad)\b/i;
 const PRIVACY_HINT = /\b(secret|token|api key|apikey|password|redact|privacy|private|local-first|telemetry|upload|cloud)\b/i;
-const SECURITY_INTENT_RE = /(?:\b(?:updated?|rotat(?:e|ed|ing)|regenerat(?:e|ed)|new|replaced?|revoked?)\b[^.]{0,40}\b(?:pat|personal access token|api[- ]?key|access token|secret|credential)s?\b|\bpat\b[^.]{0,30}\b(?:updated?|rotat|regenerat|revoked?)|\b(?:make|change|set|update|use)\b[^.]{0,30}\bemail\b(?=[^.]*@|[^.]*\bcontact\b|[^.]*\bpublic\b)|\b(?:don'?t|do not|never)\b[^.]{0,20}\b(?:expose|leak)\b|\bexpose us\b|\bleak (?:anything|audit|nothing|secrets?|creds?)\b|\b(?:full )?audit\b[^.]{0,40}\b(?:repo|repos|repositor|organization|git commit|commit history)\b|\bcommit history\b[^.]{0,30}\b(?:audit|expose|leak|clean)\b|\b(?:re-?licens(?:e|ing)|licens(?:e|ing) (?:adjustment|change)|chang(?:e|ing)[^.]{0,15}licens)\b|\b(?:disabl|skip|remov|delet)\w*\b[^.]{0,15}\btests?\b|\b(?:change|modify|update|add|tighten|loosen|fix)\b[^.]{0,20}\b(?:access control|permissions?|rbac|auth flow)\b)/i;
+const composeOr = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
+
+export const SECURITY_INTENT_PARTS = [
+  { name: 'credential_lifecycle', re: /\b(?:updated?|rotat(?:e|ed|ing)|regenerat(?:e|ed)|new|replaced?|revoked?)\b[^.]{0,40}\b(?:pat|personal access token|api[- ]?key|access token|secret|credential)s?\b/i },
+  { name: 'pat_lifecycle', re: /\bpat\b[^.]{0,30}\b(?:updated?|rotat|regenerat|revoked?)/i },
+  { name: 'email_change', re: /\b(?:make|change|set|update|use)\b[^.]{0,30}\bemail\b(?=[^.]*@|[^.]*\bcontact\b|[^.]*\bpublic\b)/i },
+  { name: 'do_not_expose', re: /\b(?:don'?t|do not|never)\b[^.]{0,20}\b(?:expose|leak)\b/i },
+  { name: 'expose_us', re: /\bexpose us\b/i },
+  { name: 'leak_list', re: /\bleak (?:anything|audit|nothing|secrets?|creds?)\b/i },
+  { name: 'audit_repos', re: /\b(?:full )?audit\b[^.]{0,40}\b(?:repo|repos|repositor|organization|git commit|commit history)\b/i },
+  { name: 'commit_history_audit', re: /\bcommit history\b[^.]{0,30}\b(?:audit|expose|leak|clean)\b/i },
+  { name: 'relicensing', re: /\b(?:re-?licens(?:e|ing)|licens(?:e|ing) (?:adjustment|change)|chang(?:e|ing)[^.]{0,15}licens)\b/i },
+  { name: 'disable_tests', re: /\b(?:disabl|skip|remov|delet)\w*\b[^.]{0,15}\btests?\b/i },
+  { name: 'access_control_change', re: /\b(?:change|modify|update|add|tighten|loosen|fix)\b[^.]{0,20}\b(?:access control|permissions?|rbac|auth flow)\b/i },
+];
+const SECURITY_INTENT_RE = composeOr(SECURITY_INTENT_PARTS);
 const SCOPE_DRIFT_HINT = /\b(don'?t add|do not add|not a web app|keep it local|too much|overbuilt|scope drift|stay focused|same format|keep .* cli|zero-config cli)\b/i;
 const TOOL_HINT = /\b(wrong tool|wrong library|use .* instead|don'?t use|dependency|package|environment|node version|python version|missing module)\b/i;
 const HALLUCINATION_HINT = /\b(hallucinat|doesn'?t exist|does not exist|no such file|fake file|fake api|made up)\b/i;
@@ -80,8 +95,20 @@ const REMEDIATION_RE = new RegExp(`${DESTRUCTIVE_RE.source}|${RECOVERY_RE.source
 
 const SECURITY_FILE_RE = /(?:^|[\\/])(?:\.env[^\\/]*|[^\\/]*(?:auth|session|middleware|login|signin|signup|permission|rbac|access[-_]?control|secur|crypto|jwt|oauth|passwd|password|secret|credential|token)[^\\/]*)$/i;
 const SECURITY_FILE_EXCLUDE_RE = /(?:^|[\\/])(?:[^\\/]*tokens?\.[a-z]+|tokenizer[^\\/]*|[^\\/]*[-_.]?token(?:izer|s)?\.(?:tsx?|jsx?|css|scss|json|svg)|semantic[-_]?tokens?[^\\/]*|design[-_]?tokens?[^\\/]*)$/i;
-const RISKY_CMD_RE =
-  /(?:\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*(?:rf|fr)[a-zA-Z]*\b|\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\b|\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\b|\bchmod\s+(?:-[a-zA-Z]+\s+)*0?777\b|(?:curl|wget)[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|ksh)\b|\b(?:sh|bash|zsh|dash|ksh)\s+<\(\s*(?:curl|wget)\b|--no-verify\b|--force(?![\w-])|\bDROP\s+TABLE\b|\bDROP\s+SCHEMA\b|\bTRUNCATE\s+(?:TABLE\s+)?[\w."`]+)/i;
+export const RISKY_CMD_PARTS = [
+  { name: 'rm_rf_combined', re: /\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*(?:rf|fr)[a-zA-Z]*\b/i },
+  { name: 'rm_r_then_f', re: /\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\b/i },
+  { name: 'rm_f_then_r', re: /\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*r[a-zA-Z]*\b/i },
+  { name: 'chmod_world_writable', re: /\bchmod\s+(?:-[a-zA-Z]+\s+)*0?777\b/i },
+  { name: 'curl_pipe_shell', re: /(?:curl|wget)[^|\n]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|dash|ksh)\b/i },
+  { name: 'shell_process_substitution', re: /\b(?:sh|bash|zsh|dash|ksh)\s+<\(\s*(?:curl|wget)\b/i },
+  { name: 'no_verify', re: /--no-verify\b/i },
+  { name: 'force', re: /--force(?![\w-])/i },
+  { name: 'drop_table', re: /\bDROP\s+TABLE\b/i },
+  { name: 'drop_schema', re: /\bDROP\s+SCHEMA\b/i },
+  { name: 'truncate', re: /\bTRUNCATE\s+(?:TABLE\s+)?[\w."`]+/i },
+];
+const RISKY_CMD_RE = composeOr(RISKY_CMD_PARTS);
 const SECRET_CONTENT_RE = /(?:\bsource\s+[^\n]*\.env\b|(?:^|[;&|]|\s)\.\s+[^\n]*\.env\b|\.env\.(?:secrets|local|prod|production)\b|\bexport\s+[A-Z0-9_]*(?:_API_KEY|_TOKEN|_SECRET|_PASSWORD|API_KEY|SECRET_KEY|ACCESS_KEY|PRIVATE_KEY)\b|\b(?:wrangler|doppler|vault)\b|\bgh\s+auth\b|\baws\s+configure\b|\bgcloud\s+auth\b|\bkubectl\s+config\s+set-credentials\b)/i;
 const ACCESS_CONTROL_CONTENT_RE = /\b(?:grant\s+(?:select|insert|update|delete|all)\b|setfacl|chmod\s+[0-7]{3,4}\b)/i;
 const ACCESS_CONTROL_WEAK_RE = /\b(?:rbac|access[-_]?control)\b/i;
