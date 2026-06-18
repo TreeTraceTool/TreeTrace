@@ -2,6 +2,23 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.7.0 - 2026-06-18
+
+### Added
+
+- `--keep-git-shas` retains git object hashes as non-secret. A 40 character commit SHA and a 64 character tree or blob hash are ordinarily redacted, which is the safe default for a privacy tool. When you are reviewing a session that legitimately discusses git history, pass `--keep-git-shas` to keep a hash that appears in git context (next to `commit`, `sha`, `HEAD`, a `git` command, or similar) while still redacting it everywhere else. The flag is opt-in and fail-closed: a hash is only kept when the flag is set, the surrounding text is git context, and the finding is not a high-severity secret, so a real key shaped like a hash is never exposed. The run reports how many hashes it kept.
+- Read-only MCP `tree` tool. The MCP server gains a fifth read-only tool that returns the assembled prompt tree as canonical JSON, the same structure the CLI renders, so an agent can read the lineage directly instead of only the derived handoff and lessons. Like the existing tools it takes no arguments, mutates nothing, and passes the redaction shadow scan before returning.
+- Structured exit codes. The CLI now exits with a documented, stable code instead of a bare 1 on every error: 0 success, 1 internal error, 2 usage error (a bad flag, a missing value, an unknown option), 3 no usable data (no sessions, no prompts, nothing since a date), and 4 a withheld write that would have leaked a secret. The codes are listed under `Exit codes:` in `--help`, so a script or CI step can branch on the reason a run stopped.
+
+### Changed
+
+- The security intent and risky command detectors are now built from named, individually testable regex pieces composed at load time instead of two hand-maintained monolithic patterns. Behavior is unchanged and covered by equivalence tests; the change makes the security signals easier to audit and extend.
+- The artifact schema version is defined in one place and shared by every writer (`tree.json`, the JSON render, and the hallucination export) instead of being repeated as a literal, so the schema version can never drift between artifacts.
+
+### Performance
+
+- Tree assembly and analysis no longer scale quadratically. `buildTree` previously resolved each node's parent with a linear scan of the node list, and `analyzeTree` recomputed token sets while walking the tree, so both grew as O(N^2) on the node count. Parent resolution is now a single pass and token sets are memoized per node, taking both to O(N). Output is byte-identical to before; large sessions assemble and analyze noticeably faster.
+
 ## 0.6.0 - 2026-06-16
 
 ### Added
