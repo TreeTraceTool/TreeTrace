@@ -1,21 +1,26 @@
 {
   "name": "treetrace",
   "version": "0.8.1",
-  "description": "Capture the agent corrections you throw away as local eval data: regression tests, failure analysis, and handoff memory. No LLM judge, no uploads.",
+  "description": "Prompt-lineage visibility for coding & CLI agent sessions. Turns a raw session into a structured, local record of every correction, refusal, token, and tool - for audit, training data, and token efficiency.",
   "keywords": [
     "claude-code",
     "prompt",
     "provenance",
     "prompt-tree",
+    "prompt-lineage",
     "ai",
     "transcript",
     "lineage",
     "agent",
     "evals",
-    "regression",
-    "memory"
+    "visibility",
+    "audit",
+    "compliance",
+    "corrections",
+    "refusals",
+    "token-usage"
   ],
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "author": "Zion Boggan",
   "homepage": "https://treetrace.dev",
   "repository": {
