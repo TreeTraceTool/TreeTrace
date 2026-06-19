@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Capture the agent corrections you throw away as local eval data: regression tests, failure analysis, and handoff memory. No LLM judge, no uploads.",
   "keywords": [
     "claude-code",
@@ -15,7 +15,7 @@
     "regression",
     "memory"
   ],
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Zion Boggan",
   "homepage": "https://treetrace.dev",
   "repository": {
@@ -33,6 +33,7 @@
     "bin",
     "src",
     "SCHEMA.md",
+    "LICENSE",
     "NOTICE"
   ],
   "engines": {

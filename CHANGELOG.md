@@ -2,6 +2,12 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.8.1 - 2026-06-19
+
+### Changed
+
+- Relicensed from Apache-2.0 to the PolyForm Noncommercial License 1.0.0. TreeTrace is now free for any noncommercial purpose (personal, research, education, nonprofit, government) and commercial or for-profit use requires a separate license from the copyright holder (zionboggan@gmail.com). The relicense applies to this version onward; copies obtained under 0.8.0 and earlier remain under Apache-2.0 for those versions. `package.json` now declares `SEE LICENSE IN LICENSE`, and `LICENSE` is included in the published package files.
+
 ## 0.8.0 - 2026-06-18
 
 ### Added
