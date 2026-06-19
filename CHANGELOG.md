@@ -2,11 +2,32 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.9.1 - 2026-06-19
+
+### Added
+
+- `tree.json` now exports token totals (aggregate stats and per-session), a per-turn `model` field on each node, and a per-node `actions` array (tool invocations, file paths, and Bash commands). Claims in the README about token usage, model-per-turn, and tool/file capture now reflect what the schema exports.
+- Bash-command file paths are now counted in `filesTouched`.
+
+### Changed
+
+- Hallucination detection no longer flags prose `word/word` fragments as missing file paths, and now checks the structured `action.file` path for Write, Edit, and NotebookEdit actions.
+- Analysis adds an inferred-tier recall backstop so strongly worded uncorroborated frustration, scope-drift, and overbuilt-solution turns still surface a signal.
+- The `bearer` redaction rule is now case-insensitive, and `--redact-auto` resolves residual high-entropy shadow-scan hits instead of failing closed; the interactive fail-closed path is unchanged.
+- The combined report counts the full set of models seen and lists correction chains.
+- Examples regenerated for v0.9.1.
+
+### Documentation
+
+- `SCHEMA.md` documents the new token, model, and action fields and the `hallucinations.json` shape.
+- Signal-coverage matrix version label updated from v0.8.1 to v0.9.1.
+- Terminal output modes (`--graph`, `--full`, `--summary`) documented as early-return modes that do not compose with `--report` or `--analysis`, and the CLI now prints a notice when other output flags are skipped because a graph mode is set.
+
 ## 0.8.1 - 2026-06-19
 
 ### Changed
 
-- Relicensed from Apache-2.0 to the PolyForm Noncommercial License 1.0.0. TreeTrace is now free for any noncommercial purpose (personal, research, education, nonprofit, government) and commercial or for-profit use requires a separate license from the copyright holder (zionboggan@gmail.com). The relicense applies to this version onward; copies obtained under 0.8.0 and earlier remain under Apache-2.0 for those versions. `package.json` now declares `SEE LICENSE IN LICENSE`, and `LICENSE` is included in the published package files.
+- Relicensed from Apache-2.0 to the PolyForm Noncommercial License 1.0.0 (SPDX: `LicenseRef-PolyForm-Noncommercial-1.0.0`). TreeTrace is now free for any noncommercial purpose (personal, research, education, nonprofit, government) and commercial or for-profit use requires a separate license from the copyright holder (zionboggan@gmail.com). The relicense applies to this version onward; copies obtained under 0.8.0 and earlier remain under Apache-2.0 for those versions. `package.json` declares `LicenseRef-PolyForm-Noncommercial-1.0.0`, and `LICENSE` is included in the published package files.
 
 ## 0.8.0 - 2026-06-18
 

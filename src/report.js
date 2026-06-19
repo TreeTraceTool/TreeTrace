@@ -43,8 +43,15 @@ export function renderReportMarkdown(tree, opts = {}) {
       .join(', ');
     lines.push(`- Rejections: ${tree.stats.rejections}${breakdown ? ` (${breakdown})` : ''}`);
   }
-  if (analysis.summary.models && analysis.summary.models.length) {
-    lines.push(`- Models seen: ${analysis.summary.models.join(', ')}`);
+  {
+    // Merge models from both the analysis pass (from node actions) and tree.stats.models
+    // (from session-level parser stats) to avoid undercounting when a model appears in
+    // the session manifest but not in any flagged-node action.
+    const allModels = [...new Set([
+      ...(tree.stats.models || []),
+      ...(analysis.summary.models || []),
+    ])].filter(Boolean);
+    if (allModels.length) lines.push(`- Models seen: ${allModels.join(', ')}`);
   }
   if (analysis.summary.thinkingBlocks) {
     lines.push(`- Reasoning blocks captured: ${analysis.summary.thinkingBlocks}`);
@@ -97,6 +104,21 @@ export function renderReportMarkdown(tree, opts = {}) {
       const tag = f.tier === 'inferred' ? 'stated intent' : f.tier;
       const nodeId = f.firstSeenNodeId ? ` [${f.firstSeenNodeId}]` : '';
       lines.push(`- (${tag})${nodeId} ${escapeMd(f.evidence)}${f.model ? ` (${f.model})` : ''}`);
+    }
+    lines.push('');
+  }
+
+  if (analysis.correctionChains && analysis.correctionChains.length) {
+    lines.push('## Correction chains');
+    lines.push('');
+    lines.push('Failure turns that received a human correction, with resolution status.');
+    lines.push('');
+    for (const chain of analysis.correctionChains.slice(0, 10)) {
+      const resolved = chain.resolvedNodeId ? ` -> resolved [${chain.resolvedNodeId}]` : ' -> unresolved';
+      lines.push(`- ${chain.id} (${chain.failureType}, ${chain.confidence}): failure [${chain.failureNodeId}] -> correction [${chain.correctionNodeId}]${resolved}`);
+    }
+    if (analysis.correctionChains.length > 10) {
+      lines.push(`- ... ${analysis.correctionChains.length - 10} more in .treetrace/failures.json`);
     }
     lines.push('');
   }

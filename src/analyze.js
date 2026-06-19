@@ -46,6 +46,12 @@ const CORRECTION_HINT =
   /\b(no|stop|scrap|not that|you forgot|you ignored|that's wrong|that is wrong|i said|instead|redo|re do|go back|wrong|doesn'?t work|didn'?t work|still (failing|broken|wrong|bad)|not what i (asked|wanted|meant))\b/i;
 const FRUSTRATION_HINT =
   /\b(sucks|awful|god awful|what the heck|wtf|mad|angry|frustrat|not suffic|i don'?t trust|terrible|bad)\b/i;
+// Strong, unambiguous frustration wording that warrants an inferred recall signal even
+// without corroboration. Deliberately narrow to avoid false positives on mild negativity.
+const STRONG_FRUSTRATION_RE =
+  /\b(god awful|wtf|what the (?:heck|hell)|(?:so |really |this )?sucks|i(?:'m| am) (?:angry|frustrated|furious)|angry and frustrated|makes me (?:angry|mad|furious)|absolutely terrible|piece of (?:junk|garbage|trash|crap))\b/i;
+// Types whose strong-signal form can emit uncorroborated (at inferred tier only).
+const UNCORROBORATED_RECALL_TYPES = new Set(['user_frustration', 'scope_drift', 'overbuilt_solution']);
 const PRIVACY_HINT = /\b(secret|token|api key|apikey|password|redact|privacy|private|local-first|telemetry|upload|cloud)\b/i;
 const composeOr = (parts) => new RegExp(parts.map((p) => `(?:${p.re.source})`).join('|'), 'i');
 
@@ -567,6 +573,29 @@ export function analyzeTree(tree) {
       correctionNode = null;
       linkage = 'positional';
     } else {
+      // Recall backstop: an unambiguous strong-pattern match on a subset of signal
+      // types emits at inferred tier even without corroboration, mirroring the
+      // security-correction recall backstop at analyze.js:500-516. Only fires when
+      // the lexical signal is strong/explicit to avoid false positives on mild wording.
+      // Never raises above inferred, so verified/high counts are unaffected.
+      const strongRecall = signals.filter(
+        (s) => UNCORROBORATED_RECALL_TYPES.has(s.type) && isStrongUncorroboratedSignal(s.type, node.text)
+      );
+      if (strongRecall.length) {
+        const anchor = priorNode || node;
+        for (const signal of strongRecall) {
+          addFailure({
+            type: signal.type,
+            confidence: Math.min(signal.confidence, 0.62),
+            tier: 'inferred',
+            failureNode: anchor,
+            correctionNode: null,
+            resolvedNode: nearestAcceptedAfter(tree.nodes, anchor, null),
+            evidence: `User said: "${quote(node.text)}"`,
+            summary: summarizeFailure(signal.type, anchor, null),
+          });
+        }
+      }
       return;
     }
 
@@ -875,6 +904,15 @@ function extractConstraints(nodes) {
     .sort((a, b) => b.weight - a.weight || b.count - a.count || b.order - a.order)
     .slice(0, CONSTRAINT_LIST_CAP)
     .map((c) => c.label);
+}
+
+// Returns true when the text carries an unambiguous strong signal for the given type,
+// justifying an inferred-tier recall hit without corroboration. Kept narrow by design.
+function isStrongUncorroboratedSignal(type, text) {
+  if (type === 'user_frustration') return STRONG_FRUSTRATION_RE.test(text);
+  if (type === 'scope_drift') return /\b(?:scope drift|you (?:went|are going) way out of scope|completely off (?:track|scope)|total scope creep)\b/i.test(text);
+  if (type === 'overbuilt_solution') return /\b(?:scrap the (?:whole|entire) web app|you (?:overbought|massively overbuilt)|way too (?:heavy|complex|big))\b/i.test(text);
+  return false;
 }
 
 function inferSignals(node) {

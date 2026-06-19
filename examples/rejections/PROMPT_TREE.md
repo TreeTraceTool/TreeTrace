@@ -1,6 +1,6 @@
 # Prompt Tree: rejections
 
-> **5 prompts** · **1 session** · **1 day** · 1 correction · 4 tool calls · 1 file touched
+> **5 prompts** · **1 session** · **1 day** · 1 correction · 4 tool calls · 2 files touched
 
 ## Goal
 
@@ -27,4 +27,4 @@
 
 ---
 
-*[treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.8.0 · [schema](https://github.com/TreeTraceTool/TreeTrace/blob/main/SCHEMA.md)*
+*[treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.9.1 · [schema](https://github.com/TreeTraceTool/TreeTrace/blob/main/SCHEMA.md)*

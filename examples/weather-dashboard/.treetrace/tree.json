@@ -2,12 +2,12 @@
   "schemaVersion": "0.3",
   "generator": {
     "name": "treetrace",
-    "version": "0.8.0",
+    "version": "0.9.1",
     "url": "https://github.com/TreeTraceTool/TreeTrace"
   },
   "project": {
     "name": "weather-dashboard",
-    "generatedAt": "2026-06-18T22:02:52.494Z",
+    "generatedAt": "2026-06-19T06:50:11.984Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
@@ -26,6 +26,8 @@
     },
     "toolUses": 2,
     "filesTouched": 1,
+    "inputTokens": 7000,
+    "outputTokens": 1750,
     "models": [
       "assistant-model"
     ],
@@ -45,7 +47,9 @@
       "firstTs": "2026-06-01T10:00:00.000Z",
       "lastTs": "2026-06-01T10:12:00.000Z",
       "promptCount": 5,
-      "isContinuation": false
+      "isContinuation": false,
+      "inputTokens": 7000,
+      "outputTokens": 1750
     }
   ],
   "nodes": [
@@ -61,6 +65,15 @@
       "reruns": 0,
       "session": "synthetic-session",
       "timestamp": "2026-06-01T10:00:00.000Z",
+      "model": "assistant-model",
+      "actions": [
+        {
+          "tool": "Write",
+          "file": "/tmp/demo/index.html",
+          "command": null,
+          "model": "assistant-model"
+        }
+      ],
       "failureSignals": [],
       "evalCandidate": false,
       "lessonIds": [],
@@ -81,6 +94,15 @@
       "reruns": 0,
       "session": "synthetic-session",
       "timestamp": "2026-06-01T10:04:00.000Z",
+      "model": "assistant-model",
+      "actions": [
+        {
+          "tool": "Edit",
+          "file": "/tmp/demo/index.html",
+          "command": null,
+          "model": "assistant-model"
+        }
+      ],
       "failureSignals": [
         {
           "type": "overbuilt_solution",
@@ -112,6 +134,8 @@
       "reruns": 0,
       "session": "synthetic-session",
       "timestamp": "2026-06-01T10:09:00.000Z",
+      "model": null,
+      "actions": [],
       "failureSignals": [
         {
           "type": "user_rejected_action",
@@ -162,6 +186,8 @@
       "reruns": 0,
       "session": "synthetic-session",
       "timestamp": "2026-06-01T10:12:00.000Z",
+      "model": null,
+      "actions": [],
       "failureSignals": [],
       "evalCandidate": false,
       "lessonIds": [],

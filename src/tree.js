@@ -109,6 +109,8 @@ function computeStats(sessions, nodes) {
   let toolUses = 0;
   let interruptions = 0;
   let rejections = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
   const rejectionsByKind = Object.create(null);
   const timestamps = [];
   for (const s of sessions) {
@@ -117,6 +119,8 @@ function computeStats(sessions, nodes) {
     toolUses += s.stats.toolUses;
     interruptions += s.stats.interruptions;
     rejections += s.stats.rejections || 0;
+    inputTokens += s.stats.inputTokens || 0;
+    outputTokens += s.stats.outputTokens || 0;
     if (s.stats.rejectionsByKind) {
       for (const [k, v] of Object.entries(s.stats.rejectionsByKind)) {
         rejectionsByKind[k] = (rejectionsByKind[k] || 0) + v;
@@ -141,6 +145,8 @@ function computeStats(sessions, nodes) {
     nudges: nodes.reduce((acc, n) => acc + n.nudges, 0),
     interruptions,
     toolUses,
+    inputTokens,
+    outputTokens,
     filesTouched: filesTouched.size,
     models: [...models],
     days: daySpan(timestamps),

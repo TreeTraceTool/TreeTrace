@@ -24,7 +24,7 @@ export const RULES = [
   { id: 'hex-token', severity: 'medium', re: /\b[0-9a-fA-F]{32,512}\b/g },
   { id: 'wireguard-key', severity: 'medium', re: /\b(PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{42,44}=?/g },
   { id: 'url-basic-auth', severity: 'medium', re: /\b[a-z][a-z0-9+.-]{0,30}:\/\/[^/\s:@'"`]{2,256}:[^/\s@'"`]{2,256}@[^\s'"`]{1,512}/gi },
-  { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/g },
+  { id: 'bearer-header', severity: 'medium', re: /\bBearer\s+[A-Za-z0-9._+/=-]{20,}\b/gi },
   { id: 'secret-assignment', severity: 'medium', re: /["'`]?\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token|client[_-]?secret|secret[_-]?key|token|bearer)\b["'`]?\s*[:=]\s*(?!(?:["'`]?\s*)?(?:\$\{|\$\(|<|%|\*{3}|\.{3}|REDACTED|\[REDACTED|xxx+|placeholder|changeme|example|your[-_]|null\b|true\b|false\b))(?:"(?:[^"\\]|\\.){4,512}"|'(?:[^'\\]|\\.){4,512}'|`(?:[^`\\]|\\.){4,512}`|[^\s'"`,;){}]{6,512})/gi },
   // Fail-closed companion: a secret-key assignment whose quoted value contains ANY backslash escape
   // is redacted even when the escape-inflated character count falls under the generic floor above.
@@ -295,4 +295,31 @@ export function shadowScan(renderedText, decisions) {
     leaks.push(f);
   }
   return leaks;
+}
+
+// Auto-redact residual high-severity tokens found by the shadow scan.
+// Mutates `decisions` in place to record each new mask decision, then
+// returns the patched text.  If the result still has leaks after patching,
+// throws so the write is still blocked (fail-closed).
+export function patchResiduals(text, decisions) {
+  const leaks = shadowScan(text, decisions);
+  if (!leaks.length) return text;
+
+  for (const f of leaks) {
+    const h = sha256(f.match);
+    if (!decisions[h]) {
+      decisions[h] = { action: 'redact', replacement: maskFor(f), ruleId: f.ruleId };
+    }
+  }
+
+  let out = applyDecisions(text, leaks, decisions);
+
+  const residual = shadowScan(out, decisions);
+  if (residual.length) {
+    throw new Error(
+      `patchResiduals: ${residual.length} leak(s) remain after auto-redaction ` +
+        `(${[...new Set(residual.map((l) => l.ruleId))].join(', ')}). Refusing to write.`
+    );
+  }
+  return out;
 }

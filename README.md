@@ -110,7 +110,7 @@ TreeTrace reads coding and CLI agent sessions (Claude Code, Codex, Cursor, Copil
 
 ### Signal coverage by adapter
 
-Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.8.1); cells marked `--` are confirmed absent.
+Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.9.1); cells marked `--` are confirmed absent.
 
 | Signal | Claude Code | ChatGPT | Codex | Cursor | Copilot | Gemini | Grok |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -190,6 +190,8 @@ Claude Code (native JSONL) is the richest source: it covers all rejection kinds,
 | `npx treetrace --since 2026-06-01` | Limit to sessions on or after a date |
 
 For a Terminus, Codex CLI, Claude Code, or SSH session where you want the report in the terminal window, use `npx treetrace --report --redact-auto`. For both terminal output and an extra shell-captured copy, pipe it: `npx treetrace --report --redact-auto | tee treetrace-output.md`.
+
+**Terminal output modes (`--graph`, `--full`, `--summary`):** These three flags activate a terminal graph mode that returns early after writing `PROMPT_TREE_GRAPH.md`. They do not compose with `--report` or `--analysis`: when any of them is present, the graph is written and the run stops -- other outputs are skipped. `--full` and `--summary` control graph detail level (full node expansion vs. spine-only summary), not which artifacts are written. Run the graph as its own separate invocation from any report or analysis pass.
 
 If you see a file literally named `output`, that usually came from `--out output` or shell redirection like `> output`. Prefer `TREETRACE_REPORT.md` for human reading and leave `.treetrace/*.json` / `.jsonl` for tools.
 
@@ -319,7 +321,7 @@ Verified means the adapter was validated against real session or real published 
 
 ## Examples
 
-See [examples/](examples/) for generated artifacts produced by running the CLI with no hand-editing:
+See [examples/](examples/) for generated artifacts produced by running the CLI with no hand-editing. The checked-in examples are versioned snapshots regenerated for v0.9.1; footers and any schema fields introduced since the previous version reflect the current release.
 
 - [examples/weather-dashboard](examples/weather-dashboard) shows lineage and the redaction gate on a clean session.
 - [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md), [rejection capture](examples/api-key-auth/.treetrace/rejections.json), and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.

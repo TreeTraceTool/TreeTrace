@@ -2,12 +2,12 @@
   "schemaVersion": "0.3",
   "generator": {
     "name": "treetrace",
-    "version": "0.8.0",
+    "version": "0.9.1",
     "url": "https://github.com/TreeTraceTool/TreeTrace"
   },
   "project": {
     "name": "rejections",
-    "generatedAt": "2026-06-18T22:02:52.475Z",
+    "generatedAt": "2026-06-19T06:50:12.990Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
@@ -29,7 +29,9 @@
       "model_refusal": 2
     },
     "toolUses": 4,
-    "filesTouched": 1,
+    "filesTouched": 2,
+    "inputTokens": 1050,
+    "outputTokens": 240,
     "models": [
       "claude-3-opus"
     ],
@@ -49,7 +51,9 @@
       "firstTs": "2026-06-18T10:00:00.000Z",
       "lastTs": "2026-06-18T10:01:10.000Z",
       "promptCount": 5,
-      "isContinuation": false
+      "isContinuation": false,
+      "inputTokens": 1050,
+      "outputTokens": 240
     }
   ],
   "nodes": [
@@ -65,6 +69,15 @@
       "reruns": 0,
       "session": "claude-code-rejections",
       "timestamp": "2026-06-18T10:00:00.000Z",
+      "model": "claude-3-opus",
+      "actions": [
+        {
+          "tool": "Bash",
+          "file": null,
+          "command": "ls -la /",
+          "model": "claude-3-opus"
+        }
+      ],
       "failureSignals": [
         {
           "type": "user_rejected_action",
@@ -106,6 +119,15 @@
       "reruns": 0,
       "session": "claude-code-rejections",
       "timestamp": "2026-06-18T10:00:15.000Z",
+      "model": "claude-3-opus",
+      "actions": [
+        {
+          "tool": "Edit",
+          "file": "README.md",
+          "command": null,
+          "model": "claude-3-opus"
+        }
+      ],
       "failureSignals": [
         {
           "type": "user_rejected_action",
@@ -147,6 +169,21 @@
       "reruns": 0,
       "session": "claude-code-rejections",
       "timestamp": "2026-06-18T10:00:30.000Z",
+      "model": "claude-3-opus",
+      "actions": [
+        {
+          "tool": "Bash",
+          "file": null,
+          "command": "mkdir -p /root/.config/forbidden",
+          "model": "claude-3-opus"
+        },
+        {
+          "tool": "Bash",
+          "file": null,
+          "command": "sudo rm -rf /root/.config/forbidden",
+          "model": "claude-3-opus"
+        }
+      ],
       "failureSignals": [
         {
           "type": "tool_execution_failed",
@@ -224,6 +261,8 @@
       "reruns": 0,
       "session": "claude-code-rejections",
       "timestamp": "2026-06-18T10:00:55.000Z",
+      "model": null,
+      "actions": [],
       "failureSignals": [
         {
           "type": "user_rejected_action",
@@ -283,6 +322,8 @@
       "reruns": 0,
       "session": "claude-code-rejections",
       "timestamp": "2026-06-18T10:01:05.000Z",
+      "model": null,
+      "actions": [],
       "failureSignals": [
         {
           "type": "model_refused",

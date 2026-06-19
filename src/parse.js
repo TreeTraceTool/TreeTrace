@@ -391,6 +391,9 @@ function ingestAssistant(session, rec) {
       const input = block.input || {};
       const file = input.file_path || input.notebook_path || null;
       if (typeof file === 'string') session.stats.filesTouched.add(file);
+      if (block.name === 'Bash' && typeof input.command === 'string') {
+        for (const p of shellFilePaths(input.command)) session.stats.filesTouched.add(p);
+      }
       if (current) {
         current.actions.push({
           tool: block.name || null,
@@ -419,6 +422,27 @@ function ingestAssistant(session, rec) {
       evidence: null,
     });
   }
+}
+
+// Absolute and relative file-path tokens from a shell command string.
+// Matches /abs/path and ./rel/path patterns that contain at least one
+// path separator. Excludes flag-only strings like "--output" and environment
+// substitutions like $VAR or ${VAR}. Returns a deduplicated array.
+const SHELL_PATH_RE = /(?:^|(?<=\s|[=,;|&`()]))(\$\{[^}]*\}|\$[A-Za-z_][A-Za-z0-9_]*|(\.{0,2}\/[^\s'"\\,;|&`()\[\]{}<>$!?*#]+))/g;
+
+function shellFilePaths(cmd) {
+  if (typeof cmd !== 'string' || !cmd) return [];
+  const seen = new Set();
+  const out = [];
+  for (const m of cmd.matchAll(SHELL_PATH_RE)) {
+    const tok = m[2];
+    if (!tok) continue;
+    const cleaned = tok.replace(/['">]+$/, '');
+    if (!cleaned || cleaned.endsWith('/') || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
 }
 
 const INPUT_CAP = 300;

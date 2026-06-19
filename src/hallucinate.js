@@ -50,6 +50,16 @@ const REL_PREFIX_RE = /^(?:\.\/|\.\.\/)/;
 const URL_LIKE_RE = /:\/\//;
 const VERSION_LIKE_RE = /^\d+(?:\.\d+)+$/;
 const FILE_OP_VERB_RE = /\b(?:open|edit|read|cat|touch|create|write|delete|rm|view|append|chmod|mv|cp|run)\b/i;
+const RATIO_LIKE_RE = /^\d+\/\d+$/;
+const KNOWN_DIR_PREFIXES = new Set([
+  'src', 'lib', 'libs', 'test', 'tests', 'spec', 'specs', 'dist', 'build',
+  'bin', 'cmd', 'pkg', 'internal', 'app', 'apps', 'api', 'web', 'www',
+  'server', 'client', 'common', 'shared', 'utils', 'util', 'helpers',
+  'config', 'configs', 'scripts', 'tools', 'docs', 'doc', 'examples',
+  'example', 'fixtures', 'mocks', 'stubs', 'public', 'static', 'assets',
+  'styles', 'components', 'pages', 'routes', 'models', 'views', 'controllers',
+  'services', 'middleware', 'plugins', 'modules', '.github', '.circleci',
+]);
 const JS_IMPORT_RE =
   /\b(?:import|export)\b[^;\n]*?\bfrom\s*['"]([^'"\n]+)['"]|\brequire\(\s*['"]([^'"\n]+)['"]\s*\)|\bimport\(\s*['"]([^'"\n]+)['"]\s*\)/g;
 const PY_IMPORT_RE = /^[ \t]*(?:from\s+([A-Za-z_][\w.]*)\s+import\b|import\s+([A-Za-z_][\w.]*(?:\s*,\s*[A-Za-z_][\w.]*)*))/gm;
@@ -164,6 +174,14 @@ function looksLikeFileToken(tok) {
   return true;
 }
 
+function hasRealFileSignal(tok, context) {
+  if (REL_PREFIX_RE.test(tok)) return true;
+  const first = tok.split('/')[0].toLowerCase();
+  if (KNOWN_DIR_PREFIXES.has(first)) return true;
+  if (FILE_OP_VERB_RE.test(context || '')) return true;
+  return false;
+}
+
 function looksLikeExtensionlessFile(tok, context) {
   if (tok.length < 3 || tok.length > 200) return false;
   if (URL_LIKE_RE.test(tok)) return false;
@@ -173,7 +191,10 @@ function looksLikeExtensionlessFile(tok, context) {
     return FILE_OP_VERB_RE.test(context || '');
   }
   if (hasSlash(tok) && !tokenExtension(tok)) {
-    return /^(?:\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+\/?$/.test(tok);
+    if (!(/^(?:\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+\/?$/.test(tok))) return false;
+    if (RATIO_LIKE_RE.test(tok)) return false;
+    if (!hasRealFileSignal(tok, context)) return false;
+    return true;
   }
   return false;
 }
@@ -243,6 +264,10 @@ function collectFileReferences(tree) {
       const body = `${a.input || ''}`.slice(0, MAX_TEXT_SCAN);
       for (const m of body.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
       for (const m of body.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, body);
+      if (a.file && typeof a.file === 'string' &&
+          (a.tool === 'Write' || a.tool === 'Edit' || a.tool === 'NotebookEdit')) {
+        push(a.file, node.id);
+      }
     }
   }
   return refs;

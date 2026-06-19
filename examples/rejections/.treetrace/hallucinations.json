@@ -2,14 +2,14 @@
   "schemaVersion": "0.3",
   "project": {
     "name": "rejections",
-    "generatedAt": "2026-06-18T22:04:20.037Z"
+    "generatedAt": "2026-06-19T06:50:13.492Z"
   },
   "verifiedAgainstWorkingTree": true,
   "manifestSeen": false,
   "summary": {
-    "total": 1,
+    "total": 2,
     "byCategory": {
-      "hallucinated_file_or_path": 1,
+      "hallucinated_file_or_path": 2,
       "hallucinated_import_or_package": 0
     }
   },
@@ -23,6 +23,17 @@
         "type": "reference_existence_check",
         "task": "Verify a file or path exists in the working tree before editing or relying on it.",
         "target": "README"
+      }
+    },
+    {
+      "category": "hallucinated_file_or_path",
+      "reference": "README.md",
+      "nodeId": "node_002",
+      "evidence": "Referenced \"README.md\" which does not exist in the working tree and was not created during the session.",
+      "evalCandidate": {
+        "type": "reference_existence_check",
+        "task": "Verify a file or path exists in the working tree before editing or relying on it.",
+        "target": "README.md"
       }
     }
   ],
