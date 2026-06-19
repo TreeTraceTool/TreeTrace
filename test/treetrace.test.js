@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { parseSessionFile, parsePlainTranscript, classifySpecialUserText } from '../src/parse.js';
 import { classifyPrompts } from '../src/extract.js';
 import { buildTree } from '../src/tree.js';
-import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings, isGitShaCandidate } from '../src/redact.js';
+import { scanText, applyDecisions, shadowScan, maskFor, resolveFindings, isGitShaCandidate, patchResiduals } from '../src/redact.js';
 import { renderMarkdown, promptPack } from '../src/render-md.js';
 import { renderMermaid, isSummaryByDefault, SUMMARY_NODE_THRESHOLD } from '../src/render-mermaid.js';
 import { renderJson } from '../src/render-json.js';
@@ -987,6 +987,7 @@ test('security report: surfaces real signals and omits benign sessions', () => {
     assert.ok(/disable the tests|disable or skip tests/i.test(report), 'test-skip signal should appear');
     assert.ok(/do not disable the tests/i.test(report), 'the human correction should surface as an eval/memory candidate');
 
+    writeFileSync(join(dir, 'README.md'), '# demo\n');
     const benign = {
       id: 'node_001', kind: 'root', status: 'accepted', parent: null,
       text: 'add a markdown table to the README', title: 'add a table',
@@ -2240,6 +2241,266 @@ test('rejections: --from claude works as an explicit --from value (Phase 0 false
     // No assertion on stdout: success means no USAGE error. If --from claude
     // were rejected (as it would be for unknown --from values) main() would
     // throw with ExitCode.USAGE before reaching this line.
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('schema-export: token totals appear in stats and per-session in tree.json', async () => {
+  const { tree } = await fixtureTree();
+  const json = renderJson(tree, { projectName: 'demo' });
+  assert.ok(typeof json.stats.inputTokens === 'number', 'stats.inputTokens must be a number');
+  assert.ok(typeof json.stats.outputTokens === 'number', 'stats.outputTokens must be a number');
+  assert.ok(json.stats.inputTokens > 0, 'stats.inputTokens should be non-zero for this fixture');
+  assert.ok(json.stats.outputTokens > 0, 'stats.outputTokens should be non-zero for this fixture');
+  assert.ok(json.sessions.length > 0, 'must have at least one session');
+  assert.ok(typeof json.sessions[0].inputTokens === 'number', 'sessions[0].inputTokens must be a number');
+  assert.ok(typeof json.sessions[0].outputTokens === 'number', 'sessions[0].outputTokens must be a number');
+  assert.equal(json.sessions[0].inputTokens, json.stats.inputTokens, 'single-session fixture: session tokens must equal stats tokens');
+});
+
+test('schema-export: per-node model and actions appear in every node in tree.json', async () => {
+  const { tree } = await fixtureTree();
+  const json = renderJson(tree, { projectName: 'demo' });
+  assert.ok(json.nodes.length > 0, 'must have at least one node');
+  assert.ok(json.nodes.every((n) => 'model' in n), 'every node must have a model field');
+  assert.ok(json.nodes.every((n) => Array.isArray(n.actions)), 'every node must have an actions array');
+  const nodeWithAction = json.nodes.find((n) => n.actions.length > 0);
+  assert.ok(nodeWithAction, 'at least one node should have an action');
+  const action = nodeWithAction.actions[0];
+  assert.ok('tool' in action, 'action must have tool');
+  assert.ok('file' in action, 'action must have file');
+  assert.ok('command' in action, 'action must have command');
+  assert.ok('model' in action, 'action must have model');
+  const rootNode = json.nodes.find((n) => n.kind === 'root');
+  assert.ok(rootNode, 'root node must exist');
+  assert.equal(rootNode.model, 'assistant-model', 'root node model attribution must match fixture');
+});
+
+test('schema-export: shell-command file paths appear in filesTouched', async () => {
+  const REJECTIONS_FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'claude-code-rejections.jsonl');
+  const { parseSessionFile: ps } = await import('../src/parse.js');
+  const session = await ps(REJECTIONS_FIXTURE, { sessionId: 'rej-shell' });
+  const touched = session.stats.filesTouched;
+  assert.ok(touched.includes('README.md'), 'Edit tool file_path must appear in filesTouched');
+  assert.ok(touched.some((f) => f.includes('.config/forbidden')), 'Bash command /root/.config/forbidden must appear in filesTouched');
+});
+
+test('analyze: uncorroborated strong frustration turn emits inferred user_frustration signal via recall backstop', () => {
+  // A pure-frustration turn that is not a correction and shares only one token with the
+  // prior node. Under the old gate this would emit no signal. The recall backstop must
+  // fire at inferred tier without inflating verified/high counts.
+  const prior = {
+    id: 'node_001', text: 'add a leaflet map to the dashboard', title: 'leaflet map', kind: 'root',
+    status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/map.js', input: '', command: null, model: 'm' }],
+  };
+  // Frustration turn: names the file once ("helper") - shares 1 token (< 3 needed for
+  // sharesEvidence); not a correction kind; strong frustration wording triggers backstop.
+  const frustration = {
+    id: 'node_002',
+    text: 'this sucks, the helper.js you wrote is god awful and terrible, i am angry and frustrated',
+    title: 'frustrated', kind: 'direction', status: 'accepted', parent: prior,
+    actions: [],
+  };
+  const analysis = analyzeTree({ nodes: [prior, frustration] });
+  const frustSignals = analysis.failures.filter((f) => f.type === 'user_frustration');
+  assert.ok(frustSignals.length >= 1, 'recall backstop must fire at least one user_frustration signal');
+  assert.ok(
+    frustSignals.every((f) => f.tier === 'inferred'),
+    'backstop signals must stay at inferred tier'
+  );
+  // Must not inflate verified or high counts.
+  const tc = analysis.summary.tierCounts;
+  assert.equal(tc.verified, 0, 'no verified signals from a pure uncorroborated frustration turn');
+  assert.equal(tc.high, 0, 'no high signals from a pure uncorroborated frustration turn');
+});
+
+test('analyze: clean weather-dashboard fixture does not gain spurious frustration signals from recall backstop', async () => {
+  // The synthetic session has no strong frustration wording; the backstop must not fire.
+  const { tree } = await fixtureTree();
+  const analysis = analyzeTree(tree);
+  const frustSignals = analysis.failures.filter((f) => f.type === 'user_frustration');
+  assert.equal(frustSignals.length, 0, 'clean synthetic fixture must produce zero user_frustration signals');
+});
+
+test('report: Models seen reflects full stats.models set, not just analysis-pass models', () => {
+  // A tree where stats.models has two models but node.actions only carries one of them.
+  // The report must list both.
+  const node = {
+    id: 'node_001', text: 'build a chart', title: 'chart', kind: 'root', status: 'accepted', parent: null,
+    actions: [{ tool: 'Edit', file: 'src/chart.js', input: '', command: null, model: 'model-a' }],
+  };
+  const tree = {
+    stats: { models: ['model-a', 'model-b'], promptCount: 1, sessionCount: 1 },
+    nodes: [node],
+    sessions: [],
+  };
+  const report = renderReportMarkdown(tree, { projectName: 'test' });
+  assert.ok(report.includes('model-a'), 'report must include model-a');
+  assert.ok(report.includes('model-b'), 'report must include model-b from stats.models');
+});
+
+test('report: correction chains section appears when chains exist', () => {
+  // Build a tree with a correction that shares a file with the prior node so a chain is formed.
+  const failure = {
+    id: 'node_001', text: 'write the config parser', title: 'config parser', kind: 'root', status: 'accepted', parent: null,
+    ts: '2026-06-12T10:00:00.000Z',
+    actions: [{ tool: 'Edit', file: 'src/config.js', input: '', command: null, model: 'm' }],
+  };
+  const correction = {
+    id: 'node_002', text: 'no that is wrong, redo the config parser logic', title: 'redo config', kind: 'correction', status: 'accepted', parent: failure,
+    ts: '2026-06-12T10:30:00.000Z',
+    actions: [{ tool: 'Edit', file: 'src/config.js', input: '', command: null, model: 'm' }],
+  };
+  const tree = {
+    stats: { models: ['m'], promptCount: 2, sessionCount: 1, corrections: 1 },
+    nodes: [failure, correction],
+    sessions: [],
+  };
+  const report = renderReportMarkdown(tree, { projectName: 'test' });
+  assert.ok(report.includes('## Correction chains'), 'report must include Correction chains section');
+  assert.ok(report.includes('node_001'), 'report must reference the failure node');
+  assert.ok(report.includes('node_002'), 'report must reference the correction node');
+});
+
+test('schema-export: new exported fields pass the redaction / assertClean guard', async () => {
+  const API_KEY_FIXTURE = join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'api-key-auth-session.jsonl');
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-schema-redact-'));
+  try {
+    await main(['--from', 'claude', '--file', API_KEY_FIXTURE, '--dir', dir, '--redact-auto', '--quiet']);
+    const treeJson = readFileSync(join(dir, '.treetrace', 'tree.json'), 'utf8');
+    const parsed = JSON.parse(treeJson);
+    assert.ok(typeof parsed.stats.inputTokens === 'number', 'stats.inputTokens present after redact gate');
+    assert.ok(typeof parsed.stats.outputTokens === 'number', 'stats.outputTokens present after redact gate');
+    assert.ok(parsed.nodes.every((n) => Array.isArray(n.actions)), 'every node has actions after redact gate');
+    const secretPatterns = [/ghp_/, /sk-ant-/, /AKIA/, /-----BEGIN/, /eyJ[A-Za-z]/, /xox[baprs]-/];
+    for (const pat of secretPatterns) {
+      assert.ok(!pat.test(treeJson), `secret pattern ${pat} must not appear in tree.json`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: prose-slash phrases produce no file-path flag', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    const proseFragments = [
+      'admin/analyst/viewer',
+      'lat/lon',
+      'make/model/color',
+      '16/9',
+      'none/low/medium/high',
+      'RTSP/HTTP',
+      'application/json',
+    ];
+    for (const phrase of proseFragments) {
+      const flags = detectHallucinations(mk(`use ${phrase} as an enum`), dir).hallucinations
+        .filter((h) => h.category === 'hallucinated_file_or_path')
+        .map((h) => h.reference);
+      assert.deepEqual(flags, [], `prose phrase "${phrase}" must not be flagged as a missing file path`);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: true positive ./src/middleware/rateLimit.js still fires', () => {
+  const dir = tempProject();
+  try {
+    const mk = (text) => ({ nodes: [{ id: 'n1', kind: 'root', status: 'accepted', parent: null, text, title: 't', actions: [] }] });
+    const flags = detectHallucinations(mk('update ./src/middleware/rateLimit.js for the new rate limiting logic'), dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+    assert.ok(flags.some((r) => r.includes('rateLimit.js')), 'invented path ./src/middleware/rateLimit.js must still be flagged');
+    const flags2 = detectHallucinations(mk('edit src/middleware/rateLimit.js'), dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+    assert.ok(flags2.some((r) => r.includes('rateLimit.js')), 'src/ prefixed invented path must still be flagged');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hallucinations: Edit to nonexistent file is flagged via action.file alone', () => {
+  const dir = tempProject();
+  try {
+    const tree = {
+      nodes: [{
+        id: 'n1', kind: 'root', status: 'accepted', parent: null,
+        text: 'update the config',
+        title: 't',
+        actions: [{ tool: 'Edit', file: 'src/nonexistent-only-in-action-file.js', input: '', command: null }],
+      }],
+    };
+    const flags = detectHallucinations(tree, dir).hallucinations
+      .filter((h) => h.category === 'hallucinated_file_or_path')
+      .map((h) => h.reference);
+    assert.ok(
+      flags.some((r) => r.includes('nonexistent-only-in-action-file.js')),
+      'Edit to a nonexistent file must be caught via action.file even when path is absent from node.text'
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('redaction: lowercase bearer token is caught by bearer-header rule', () => {
+  const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.lowentropy1234';
+  const text = `Authorization: bearer ${token}`;
+  const hits = scanText(text).map((f) => f.ruleId);
+  assert.ok(hits.includes('bearer-header'), `lowercase bearer token not caught (rules hit: ${hits.join(', ')})`);
+  const decisions = {};
+  const findings = scanText(text);
+  for (const f of findings) {
+    if (f.ruleId === 'bearer-header') {
+      decisions[sha256(f.match)] = { action: 'redact', replacement: maskFor(f), ruleId: f.ruleId };
+    }
+  }
+  const cleaned = applyDecisions(text, findings, decisions);
+  assert.ok(!cleaned.includes(token), 'raw token still present after redaction');
+  assert.ok(cleaned.includes('[REDACTED:bearer-header]'), 'expected bearer-header redaction marker');
+});
+
+test('redaction: --redact-auto resolves high-entropy shadow-scan residuals and writes clean artifacts', async () => {
+  const highEntropyToken = 'Xk9mQ2vR7nLpZ4wY8sA3cB6eF1hJ0uT5iG2dN';
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-entropy-auto-'));
+  const file = join(dir, 'conv.json');
+  const convo = [{
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: {
+        message: {
+          author: { role: 'user' },
+          content: { parts: [`check the session token ${highEntropyToken} for issues`] },
+          create_time: 1.0,
+        },
+        parent: 'r',
+        children: ['a'],
+      },
+      a: {
+        message: {
+          author: { role: 'assistant' },
+          content: { parts: ['done'] },
+          create_time: 2.0,
+        },
+        parent: 'u',
+        children: [],
+      },
+    },
+  }];
+  writeFileSync(file, JSON.stringify(convo));
+  try {
+    await main(['--from', 'chatgpt', '--file', file, '--dir', dir, '--redact-auto', '--quiet']);
+    const treeJson = readFileSync(join(dir, '.treetrace', 'tree.json'), 'utf8');
+    assert.ok(!treeJson.includes(highEntropyToken), 'raw high-entropy token leaked into tree.json');
+    assert.equal(
+      shadowScan(treeJson, {}).filter((f) => f.severity !== 'soft').length,
+      0,
+      'tree.json still has residual high-entropy tokens after --redact-auto'
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -5,7 +5,7 @@ import { parseSessionFile, parsePlainTranscript } from './parse.js';
 import { adaptFrom, autoAdapt, TOOLS } from './adapters/index.js';
 import { classifyPrompts } from './extract.js';
 import { buildTree } from './tree.js';
-import { scanText, resolveFindings, applyDecisions, shadowScan } from './redact.js';
+import { scanText, resolveFindings, applyDecisions, shadowScan, patchResiduals } from './redact.js';
 import { renderMarkdown } from './render-md.js';
 import { renderMermaid, isSummaryByDefault } from './render-mermaid.js';
 import { renderJson } from './render-json.js';
@@ -93,8 +93,8 @@ export async function main(argv) {
   const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt, sourceType: sourceTypeFor(sourceTool) };
 
   if (opts.handoff) {
-    const pack = renderHandoff(tree, renderOpts);
-    assertClean(pack, decisions, 'handoff brief');
+    let pack = renderHandoff(tree, renderOpts);
+    pack = assertClean(pack, decisions, 'handoff brief', opts.redactAuto);
     if (Object.keys(decisions).length) {
       mkdirSync(ttDir, { recursive: true });
       writeFileSync(decisionsPath, JSON.stringify(decisions, null, 2));
@@ -105,10 +105,10 @@ export async function main(argv) {
   }
 
   if (opts.security) {
-    const securityReport = renderSecurityReport(tree, projectDir, renderOpts);
-    const hallucinationsText = JSON.stringify(renderHallucinationsJson(tree, projectDir, renderOpts), null, 2);
-    assertClean(securityReport, decisions, 'security report');
-    assertClean(hallucinationsText, decisions, 'hallucinations.json');
+    let securityReport = renderSecurityReport(tree, projectDir, renderOpts);
+    let hallucinationsText = JSON.stringify(renderHallucinationsJson(tree, projectDir, renderOpts), null, 2);
+    securityReport = assertClean(securityReport, decisions, 'security report', opts.redactAuto);
+    hallucinationsText = assertClean(hallucinationsText, decisions, 'hallucinations.json', opts.redactAuto);
     mkdirSync(projectDir, { recursive: true });
     mkdirSync(ttDir, { recursive: true });
     writeFileSync(join(ttDir, 'hallucinations.json'), hallucinationsText);
@@ -119,14 +119,27 @@ export async function main(argv) {
   }
 
   if (opts.graph) {
+    const skippedByGraph = [];
+    if (opts.report) skippedByGraph.push('--report');
+    if (opts.analysis) skippedByGraph.push('--analysis');
+    if (opts.failures) skippedByGraph.push('--failures');
+    if (opts.rejections) skippedByGraph.push('--rejections');
+    if (opts.lessons) skippedByGraph.push('--lessons');
+    if (opts.evals) skippedByGraph.push('--evals');
+    if (opts.memory) skippedByGraph.push('--memory');
+    if (skippedByGraph.length) {
+      log(
+        `note: graph mode is terminal -- ${skippedByGraph.join(', ')} output${skippedByGraph.length > 1 ? 's were' : ' was'} not written`
+      );
+    }
     const graphOpts = { ...renderOpts, summary: opts.graphSummary, full: opts.graphFull };
     const mermaid = renderMermaid(tree, graphOpts);
     const summarized =
       graphOpts.summary === true ||
       (graphOpts.full !== true && isSummaryByDefault(tree));
-    const graphDoc = wrapMermaidDoc(mermaid, projectName, summarized);
+    let graphDoc = wrapMermaidDoc(mermaid, projectName, summarized);
     const graphPath = resolve(projectDir, opts.out || 'PROMPT_TREE_GRAPH.md');
-    assertClean(graphDoc, decisions, 'PROMPT_TREE_GRAPH.md');
+    graphDoc = assertClean(graphDoc, decisions, 'PROMPT_TREE_GRAPH.md', opts.redactAuto);
     mkdirSync(projectDir, { recursive: true });
     mkdirSync(ttDir, { recursive: true });
     writeFileSync(graphPath, graphDoc);
@@ -136,17 +149,19 @@ export async function main(argv) {
     return;
   }
 
-  const md = renderMarkdown(tree, renderOpts);
+  let md = renderMarkdown(tree, renderOpts);
   const json = renderJson(tree, renderOpts);
-  const jsonText = JSON.stringify(json, null, 2);
+  let jsonText = JSON.stringify(json, null, 2);
   const artifacts = analysisArtifacts(ttDir, tree, renderOpts, projectDir);
   const outPath = resolve(projectDir, opts.out || 'PROMPT_TREE.md');
   const reportPath = resolve(projectDir, opts.reportFile || 'TREETRACE_REPORT.md');
-  const report = renderReportMarkdown(tree, renderOpts);
+  let report = renderReportMarkdown(tree, renderOpts);
 
   const requested = requestedArtifacts(opts, artifacts);
   if (requested.length && !opts.report) {
-    for (const artifact of requested) assertClean(artifact.text, decisions, artifact.label);
+    for (const artifact of requested) {
+      artifact.text = assertClean(artifact.text, decisions, artifact.label, opts.redactAuto);
+    }
     mkdirSync(projectDir, { recursive: true });
     mkdirSync(ttDir, { recursive: true });
     for (const artifact of requested) writeFileSync(artifact.path, artifact.text);
@@ -160,10 +175,12 @@ export async function main(argv) {
     return;
   }
 
-  assertClean(md, decisions, 'PROMPT_TREE.md');
-  assertClean(jsonText, decisions, 'tree.json');
-  for (const artifact of Object.values(artifacts)) assertClean(artifact.text, decisions, artifact.label);
-  assertClean(report, decisions, 'TREETRACE_REPORT.md');
+  md = assertClean(md, decisions, 'PROMPT_TREE.md', opts.redactAuto);
+  jsonText = assertClean(jsonText, decisions, 'tree.json', opts.redactAuto);
+  for (const artifact of Object.values(artifacts)) {
+    artifact.text = assertClean(artifact.text, decisions, artifact.label, opts.redactAuto);
+  }
+  report = assertClean(report, decisions, 'TREETRACE_REPORT.md', opts.redactAuto);
 
   mkdirSync(projectDir, { recursive: true });
   mkdirSync(ttDir, { recursive: true });
@@ -432,7 +449,10 @@ function requestedArtifacts(opts, artifacts) {
   return requested;
 }
 
-export function assertClean(rendered, decisions, label) {
+export function assertClean(rendered, decisions, label, autoRedact = false) {
+  if (autoRedact) {
+    return patchResiduals(rendered, decisions);
+  }
   const leaks = shadowScan(rendered, decisions);
   if (leaks.length) {
     throw new TreetraceError(
@@ -442,6 +462,7 @@ export function assertClean(rendered, decisions, label) {
       ExitCode.WOULD_LEAK
     );
   }
+  return rendered;
 }
 
 export function wrapMermaidDoc(mermaid, projectName, summarized = false) {

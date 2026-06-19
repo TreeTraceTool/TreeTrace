@@ -38,4 +38,4 @@
 
 ---
 
-*[treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.8.0 · [schema](https://github.com/TreeTraceTool/TreeTrace/blob/main/SCHEMA.md)*
+*[treetrace](https://github.com/TreeTraceTool/TreeTrace) v0.9.0 · [schema](https://github.com/TreeTraceTool/TreeTrace/blob/main/SCHEMA.md)*

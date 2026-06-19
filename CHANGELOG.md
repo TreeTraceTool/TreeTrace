@@ -2,11 +2,27 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.9.0 - 2026-06-19
+
+### Added
+
+- `tree.json` now exports token totals (aggregate stats and per-session), a per-turn `model` field on each node, and a per-node `actions` array (tool invocations, file paths, and Bash commands). Claims in the README about token usage, model-per-turn, and tool/file capture now reflect what the schema exports.
+
+### Changed
+
+- Redaction and detection hardened in this release cycle (see 0.8.x entries for detail).
+- Examples regenerated for v0.9.0; footers and `.treetrace/redactions.json` reflect the current schema version.
+
+### Documentation
+
+- Signal-coverage matrix version label updated from v0.8.1 to v0.9.0.
+- Terminal output modes (`--graph`, `--full`, `--summary`) documented as early-return modes that do not compose with `--report` or `--analysis`.
+
 ## 0.8.1 - 2026-06-19
 
 ### Changed
 
-- Relicensed from Apache-2.0 to the PolyForm Noncommercial License 1.0.0. TreeTrace is now free for any noncommercial purpose (personal, research, education, nonprofit, government) and commercial or for-profit use requires a separate license from the copyright holder (zionboggan@gmail.com). The relicense applies to this version onward; copies obtained under 0.8.0 and earlier remain under Apache-2.0 for those versions. `package.json` now declares `SEE LICENSE IN LICENSE`, and `LICENSE` is included in the published package files.
+- Relicensed from Apache-2.0 to the PolyForm Noncommercial License 1.0.0 (SPDX: `LicenseRef-PolyForm-Noncommercial-1.0.0`). TreeTrace is now free for any noncommercial purpose (personal, research, education, nonprofit, government) and commercial or for-profit use requires a separate license from the copyright holder (zionboggan@gmail.com). The relicense applies to this version onward; copies obtained under 0.8.0 and earlier remain under Apache-2.0 for those versions. `package.json` declares `LicenseRef-PolyForm-Noncommercial-1.0.0`, and `LICENSE` is included in the published package files.
 
 ## 0.8.0 - 2026-06-18
 

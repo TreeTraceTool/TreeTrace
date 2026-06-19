@@ -2,12 +2,12 @@
   "schemaVersion": "0.3",
   "generator": {
     "name": "treetrace",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "url": "https://github.com/TreeTraceTool/TreeTrace"
   },
   "project": {
     "name": "api-key-auth",
-    "generatedAt": "2026-06-18T22:04:19.904Z",
+    "generatedAt": "2026-06-19T06:41:31.989Z",
     "sourceType": "claude-code-jsonl"
   },
   "stats": {
@@ -25,6 +25,8 @@
     },
     "toolUses": 4,
     "filesTouched": 2,
+    "inputTokens": 3900,
+    "outputTokens": 880,
     "models": [
       "assistant-model"
     ],
@@ -44,7 +46,9 @@
       "firstTs": "2026-06-02T09:00:00.000Z",
       "lastTs": "2026-06-02T09:04:00.000Z",
       "promptCount": 4,
-      "isContinuation": false
+      "isContinuation": false,
+      "inputTokens": 3900,
+      "outputTokens": 880
     }
   ],
   "nodes": [
@@ -60,6 +64,21 @@
       "reruns": 0,
       "session": "api-key-auth-session",
       "timestamp": "2026-06-02T09:00:00.000Z",
+      "model": "assistant-model",
+      "actions": [
+        {
+          "tool": "Edit",
+          "file": "/tmp/api-key-auth/src/auth/apiKey.js",
+          "command": null,
+          "model": "assistant-model"
+        },
+        {
+          "tool": "Edit",
+          "file": "/tmp/api-key-auth/server.js",
+          "command": null,
+          "model": "assistant-model"
+        }
+      ],
       "failureSignals": [
         {
           "type": "security_or_privacy_risk",
@@ -109,6 +128,15 @@
       "reruns": 0,
       "session": "api-key-auth-session",
       "timestamp": "2026-06-02T09:02:00.000Z",
+      "model": "assistant-model",
+      "actions": [
+        {
+          "tool": "Edit",
+          "file": "/tmp/api-key-auth/src/auth/apiKey.js",
+          "command": null,
+          "model": "assistant-model"
+        }
+      ],
       "failureSignals": [
         {
           "type": "user_rejected_action",
@@ -150,6 +178,15 @@
       "reruns": 0,
       "session": "api-key-auth-session",
       "timestamp": "2026-06-02T09:03:00.000Z",
+      "model": "assistant-model",
+      "actions": [
+        {
+          "tool": "Bash",
+          "file": null,
+          "command": "git commit -am \"wip: api key auth\" --no-verify && git push --force",
+          "model": "assistant-model"
+        }
+      ],
       "failureSignals": [
         {
           "type": "security_or_privacy_risk",
@@ -181,6 +218,8 @@
       "reruns": 0,
       "session": "api-key-auth-session",
       "timestamp": "2026-06-02T09:04:00.000Z",
+      "model": null,
+      "actions": [],
       "failureSignals": [],
       "evalCandidate": false,
       "lessonIds": [],

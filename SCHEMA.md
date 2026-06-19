@@ -20,16 +20,30 @@ Agent Trace answers "which code came from AI?" TreeTrace answers "how did the hu
 ```jsonc
 {
   "schemaVersion": "0.3",
-  "generator": { "name": "treetrace", "version": "0.3.0", "url": "..." },
+  "generator": { "name": "treetrace", "version": "0.9.0", "url": "..." },
   "project": { "name": "...", "generatedAt": "ISO-8601", "sourceType": "claude-code-jsonl" },
-  "stats": { "prompts": 41, "sessions": 6, "days": 9, "corrections": 3, "rejections": 4 },
+  "stats": {
+    "prompts": 41, "sessions": 6, "days": 9,
+    "corrections": 3, "rejections": 4,
+    "toolUses": 12, "filesTouched": 7,
+    "inputTokens": 8400, "outputTokens": 2100,
+    "models": ["claude-opus-4-8"],
+    "firstTs": "ISO-8601", "lastTs": "ISO-8601"
+  },
   "analysis": {
     "failureSignals": 11,
     "correctionChains": 3,
     "evalCandidates": 6,
     "lessons": 7
   },
-  "sessions": [ { "id": "...", "title": "...", "firstTs": "...", "lastTs": "...", "promptCount": 7 } ],
+  "sessions": [
+    {
+      "id": "...", "title": "...",
+      "firstTs": "ISO-8601", "lastTs": "ISO-8601",
+      "promptCount": 7, "isContinuation": false,
+      "inputTokens": 8400, "outputTokens": 2100
+    }
+  ],
   "nodes": [ /* PromptNode */ ],
   "edges": [ /* Edge */ ],
   "correctionChains": [ /* CorrectionChain */ ],
@@ -39,6 +53,43 @@ Agent Trace answers "which code came from AI?" TreeTrace answers "how did the hu
 ```
 
 All v0.3 additions are optional and additive. Consumers that only understand v0.2 can keep reading `nodes` and `edges` and ignore `rejections`.
+
+## stats fields
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `prompts` | number | total classified prompt nodes |
+| `rawPrompts` | number | total raw prompt records across all sessions |
+| `sessions` | number | sessions that contained at least one prompt |
+| `days` | number | calendar days spanned |
+| `corrections` | number | nodes classified as `correction` |
+| `scopeChanges` | number | nodes classified as `scope-change` |
+| `checkpoints` | number | nodes classified as `checkpoint` |
+| `abandonedBranches` | number | distinct abandoned sub-trees |
+| `rejections` | number | total rejection/refusal/decline events |
+| `rejectionsByKind` | object | count per rejection kind |
+| `toolUses` | number | total tool invocations across all sessions |
+| `filesTouched` | number | distinct file paths referenced (Edit/Write paths and shell command paths) |
+| `inputTokens` | number | sum of input tokens across all sessions (0 when not available for the source format) |
+| `outputTokens` | number | sum of output tokens across all sessions (0 when not available for the source format) |
+| `models` | string[] | deduplicated list of model identifiers seen across all sessions |
+| `firstTs` | string \| null | ISO-8601 timestamp of the earliest record |
+| `lastTs` | string \| null | ISO-8601 timestamp of the latest record |
+
+Token coverage by source: Claude Code JSONL (full), Codex rollout (full), Gemini CLI (full), ChatGPT export (none), Copilot (none), Cursor (none), Grok (none), plain transcript (none).
+
+## sessions[] fields
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `id` | string | session identifier |
+| `title` | string \| null | session title if captured |
+| `firstTs` | string \| null | ISO-8601 |
+| `lastTs` | string \| null | ISO-8601 |
+| `promptCount` | number | classified prompts in this session |
+| `isContinuation` | boolean | session resumed from a prior compact summary |
+| `inputTokens` | number | input tokens for this session (0 when not available) |
+| `outputTokens` | number | output tokens for this session (0 when not available) |
 
 ## PromptNode
 
@@ -55,11 +106,28 @@ All v0.3 additions are optional and additive. Consumers that only understand v0.
 | `reruns` | number | repeated instruction re-issues folded into this node |
 | `session` | string | session id this prompt came from |
 | `timestamp` | string \| null | ISO-8601 |
+| `model` | string \| null | model that handled this turn (from the first action on the turn; null if not available) |
+| `actions` | Action[] | tool invocations made in response to this prompt, after redaction |
 | `failureSignals` | FailureSignal[] | optional v0.2 failure labels attached to this node |
 | `evalCandidate` | boolean | whether this node contributes to an eval candidate |
 | `lessonIds` | string[] | lessons derived from this node |
 | `rejections` | Rejection[] | optional v0.3 typed rejection/refusal/decline events captured on this turn |
 | `sourceEventIds` | string[] | local transcript record UUIDs; raw transcripts are never exported |
+
+## Action
+
+```jsonc
+{ "tool": "Edit", "file": "/src/auth.js", "command": null, "model": "claude-opus-4-8" }
+```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `tool` | string \| null | tool name (`Bash`, `Edit`, `Write`, `Read`, etc.) |
+| `file` | string \| null | file path from a structured `file_path` input; redacted |
+| `command` | string \| null | shell command string for `Bash` tool calls; redacted |
+| `model` | string \| null | model that issued this tool call; null when not available |
+
+`file` and `command` values are run through the same redaction gate as `node.text`. An `action` whose `command` or `file` contains a secret will have that value replaced with a `[REDACTED:rule-id]` marker before export.
 
 The `rejection` kind (v0.3) is assigned to synthetic nodes that exist only to carry a rejection signal, e.g. a tool-result rejection that arrived before any human-typed prompt. Such nodes have empty `text`, a `title` derived from the rejection kind(s), and one or more entries in `rejections`.
 
@@ -80,7 +148,7 @@ Initial `type` values:
 - `misunderstood_goal`
 - `scope_drift`
 - `wrong_tool_choice`
-- `hallucinated_file_or_api`
+- `hallucinated_file_or_path` (also written as `hallucinated_file_or_api` in older exports; treat as equivalent)
 - `repeated_failed_fix`
 - `overbuilt_solution`
 - `underbuilt_solution`
@@ -200,6 +268,49 @@ Initial eval `type` values:
 - `tool_permission_regression` (v0.3)
 - `tool_error_recovery` (v0.3)
 - `refusal_handling` (v0.3)
+
+## hallucinations.json (--security)
+
+Written to `.treetrace/hallucinations.json` when `--security` is passed. Requires a `--dir` that points to a real project tree so file existence and package manifests can be checked.
+
+```jsonc
+{
+  "schemaVersion": "0.3",
+  "project": { "name": "...", "generatedAt": "ISO-8601" },
+  "verifiedAgainstWorkingTree": true,
+  "manifestSeen": true,
+  "summary": {
+    "total": 2,
+    "byCategory": {
+      "hallucinated_file_or_path": 1,
+      "hallucinated_import_or_package": 1
+    }
+  },
+  "hallucinations": [
+    {
+      "category": "hallucinated_file_or_path",
+      "reference": "./src/middleware/rateLimit.js",
+      "nodeId": "node_001",
+      "evidence": "Referenced ... which does not exist in the working tree and was not created during the session.",
+      "evalCandidate": {
+        "type": "reference_existence_check",
+        "task": "Verify a file or path exists in the working tree before editing or relying on it.",
+        "target": "./src/middleware/rateLimit.js"
+      }
+    }
+  ],
+  "note": "..."
+}
+```
+
+`category` enum:
+
+- `hallucinated_file_or_path` - a relative file/path token appears in scannable text but does not exist on disk and was not created during the session
+- `hallucinated_import_or_package` - a JS or Python import specifier is not a declared dependency and is not a standard-library/builtin module
+
+`verifiedAgainstWorkingTree` is `false` when the project directory could not be resolved. `manifestSeen` is `false` when no `package.json`, lockfile, or `requirements.txt` was found.
+
+Detection covers: user prompt text, tool action inputs, and tool commands. It does not scan assistant prose (assistant turns are not stored in `node.text`) and does not resolve per-symbol exports inside a module.
 
 ## Separate Analysis Artifacts
 
