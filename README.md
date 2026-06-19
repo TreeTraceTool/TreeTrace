@@ -23,7 +23,7 @@
 <p>
   <a href="#install">Install</a> &nbsp;&middot;&nbsp;
   <a href="#why-it-exists">Why</a> &nbsp;&middot;&nbsp;
-  <a href="#use-cases">Use cases</a> &nbsp;&middot;&nbsp;
+  <a href="#what-one-record-makes-possible">Use cases</a> &nbsp;&middot;&nbsp;
   <a href="#what-it-captures">What it captures</a> &nbsp;&middot;&nbsp;
   <a href="#outputs">Outputs</a> &nbsp;&middot;&nbsp;
   <a href="#mcp-server">MCP</a> &nbsp;&middot;&nbsp;
@@ -56,25 +56,22 @@ Git history shows what changed. TreeTrace shows how the work actually got done.
 
 Coding and CLI agent sessions contain the most useful steering data you generate: where the model misunderstood the goal, which correction fixed it, which branch was abandoned, what constraint kept getting ignored, what the agent was refused or denied, and what should carry forward so the next session does not repeat the waste. That data vanishes when the session ends. TreeTrace captures it locally as a structured, vendor-neutral record.
 
-## Use cases
+## What one record makes possible
+
+One record. Many uses.
+
+### Today
 
 <table>
 <tr>
-<td width="33%" valign="top">
-
-**Compliance & GRC**
-
-A redacted, signed-off record of what the agent did and was refused.
-
-</td>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
 **Model-training data**
 
 Real corrections become regression evals. No LLM judge.
 
 </td>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
 **Dev & token efficiency**
 
@@ -84,7 +81,19 @@ See the cost of rework and where steering was needed.
 </tr>
 </table>
 
-**One record. Many uses.**
+### Where it's headed
+
+<table>
+<tr>
+<td valign="top">
+
+**Compliance & GRC**
+
+A redacted, signed-off record of what an agent did and was refused. Not a current capability - the foundation is being built toward this.
+
+</td>
+</tr>
+</table>
 
 ## What it captures
 
