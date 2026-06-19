@@ -31,9 +31,7 @@
   <a href="https://treetrace.dev">treetrace.dev</a>
 </p>
 
-<a href="https://treetrace.dev">
-  <img alt="TreeTrace launch video" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/prompt-tree.gif" width="760">
-</a>
+<p align="center"><a href="https://treetrace.dev/assets/treetrace-v43.mp4"><img src="https://treetrace.dev/assets/treetrace-v43-poster.jpg" alt="Watch the TreeTrace demo video" width="760"></a></p>
 
 <picture>
   <img alt="TreeTrace turning a session into a prompt tree, lessons, and redacted output" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/demo.gif" width="760">
@@ -73,7 +71,7 @@ Real corrections become regression evals. No LLM judge.
 </td>
 <td width="50%" valign="top">
 
-**Dev & token efficiency**
+**Dev & token efficiency insight**
 
 See the cost of rework and where steering was needed.
 
@@ -81,7 +79,7 @@ See the cost of rework and where steering was needed.
 </tr>
 </table>
 
-### Where it's headed
+### Where is it headed?
 
 <table>
 <tr>

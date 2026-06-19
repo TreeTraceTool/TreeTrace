@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Prompt-lineage visibility for coding & CLI agent sessions. Turns a raw session into a structured, local record of every correction, refusal, token, and tool - for audit, training data, and token efficiency.",
   "keywords": [
     "claude-code",

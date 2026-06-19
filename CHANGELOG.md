@@ -2,6 +2,14 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.9.2 - 2026-06-19
+
+### Documentation
+
+- README leads with the hosted brand video poster (links to treetrace.dev/assets/treetrace-v43.mp4) instead of the prompt-tree.gif animation.
+- Removed prompt-tree.gif from the README; demo.gif in-terminal walkthrough kept.
+- Updated use-case section: heading is now "Where is it headed?" and "Dev & token efficiency" heading now reads "Dev & token efficiency insight", matching the canonical MESSAGING.md wording.
+
 ## 0.9.1 - 2026-06-19
 
 ### Added
