@@ -2,6 +2,23 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.10.0 - 2026-06-19
+
+### Added
+
+- `--each` writes one full, redacted report bundle per session into `--out-dir` (default `treetrace-reports/`), plus `INDEX.md` and `index.json` manifests summarizing prompts, corrections, rejections, and security flags per session. Batch runs auto-redact and fail closed.
+- `--deterministic` pins the generation timestamp so re-running on the same session produces byte-identical artifacts, for reproducible audit bundles and stable diffs.
+- Model-refusal capture now works on plain `User:` / `Assistant:` transcripts (inline and multi-line assistant turns) and on the ChatGPT, Codex, Cursor, and Gemini adapters, not only native Claude Code sessions. User text declines are also captured on plain transcripts.
+
+### Changed
+
+- Refusal overrides are no longer promoted into correction chains or eval candidates: a human turn the model refused, or the push-back immediately after a refusal, is excluded from misunderstood-goal and security-intent promotion, and refusal or decline failure types no longer quote the refused content as a requirement to honor. The refusal itself is still recorded.
+- `loadRedactedTree` is split into `collectSessions` and `treeFromSessions` so a single run can build one tree per session; existing single-run behavior is unchanged.
+
+### Documentation
+
+- README documents `--each` and `--deterministic`, and the signal-coverage matrix reflects the broadened refusal capture.
+
 ## 0.9.2 - 2026-06-19
 
 ### Documentation

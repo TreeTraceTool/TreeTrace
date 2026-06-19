@@ -1,4 +1,4 @@
-import { newSession, finalizeSession, pushTurn, addAction, looksSynthetic } from './shared.js';
+import { newSession, finalizeSession, pushTurn, addAction, looksSynthetic, noteAssistantRefusal } from './shared.js';
 
 function parseCursorParams(tfd) {
   const raw = tfd && (tfd.params || tfd.rawArgs);
@@ -77,6 +77,7 @@ function parseExportedSession(parsed, path, sessionId) {
     } else if (msg.role === 'assistant') {
       session.stats.assistantLines++;
       if (msg.model) session.stats.models.add(msg.model);
+      if (typeof msg.content === 'string') noteAssistantRefusal(session, msg.content);
       if (Array.isArray(msg.toolCalls)) {
         for (const call of msg.toolCalls) {
           session.stats.toolUses++;
@@ -150,6 +151,7 @@ export function parseCursor(parsed, path, sessionId) {
       pushTurn(session, ++turn, text, ts);
     } else {
       session.stats.assistantLines++;
+      noteAssistantRefusal(session, bubbleText(bubble));
       if (bubble.toolFormerData) {
         session.stats.toolUses++;
         const tfd = bubble.toolFormerData;
