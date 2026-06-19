@@ -2,21 +2,26 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
-## 0.9.0 - 2026-06-19
+## 0.9.1 - 2026-06-19
 
 ### Added
 
 - `tree.json` now exports token totals (aggregate stats and per-session), a per-turn `model` field on each node, and a per-node `actions` array (tool invocations, file paths, and Bash commands). Claims in the README about token usage, model-per-turn, and tool/file capture now reflect what the schema exports.
+- Bash-command file paths are now counted in `filesTouched`.
 
 ### Changed
 
-- Redaction and detection hardened in this release cycle (see 0.8.x entries for detail).
-- Examples regenerated for v0.9.0; footers and `.treetrace/redactions.json` reflect the current schema version.
+- Hallucination detection no longer flags prose `word/word` fragments as missing file paths, and now checks the structured `action.file` path for Write, Edit, and NotebookEdit actions.
+- Analysis adds an inferred-tier recall backstop so strongly worded uncorroborated frustration, scope-drift, and overbuilt-solution turns still surface a signal.
+- The `bearer` redaction rule is now case-insensitive, and `--redact-auto` resolves residual high-entropy shadow-scan hits instead of failing closed; the interactive fail-closed path is unchanged.
+- The combined report counts the full set of models seen and lists correction chains.
+- Examples regenerated for v0.9.1.
 
 ### Documentation
 
-- Signal-coverage matrix version label updated from v0.8.1 to v0.9.0.
-- Terminal output modes (`--graph`, `--full`, `--summary`) documented as early-return modes that do not compose with `--report` or `--analysis`.
+- `SCHEMA.md` documents the new token, model, and action fields and the `hallucinations.json` shape.
+- Signal-coverage matrix version label updated from v0.8.1 to v0.9.1.
+- Terminal output modes (`--graph`, `--full`, `--summary`) documented as early-return modes that do not compose with `--report` or `--analysis`, and the CLI now prints a notice when other output flags are skipped because a graph mode is set.
 
 ## 0.8.1 - 2026-06-19
 

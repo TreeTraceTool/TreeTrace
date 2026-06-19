@@ -110,7 +110,7 @@ TreeTrace reads coding and CLI agent sessions (Claude Code, Codex, Cursor, Copil
 
 ### Signal coverage by adapter
 
-Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.9.0); cells marked `--` are confirmed absent.
+Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.9.1); cells marked `--` are confirmed absent.
 
 | Signal | Claude Code | ChatGPT | Codex | Cursor | Copilot | Gemini | Grok |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -321,7 +321,7 @@ Verified means the adapter was validated against real session or real published 
 
 ## Examples
 
-See [examples/](examples/) for generated artifacts produced by running the CLI with no hand-editing. The checked-in examples are versioned snapshots regenerated for v0.9.0; footers, `.treetrace/redactions.json`, and any schema fields introduced since the previous version reflect the current release.
+See [examples/](examples/) for generated artifacts produced by running the CLI with no hand-editing. The checked-in examples are versioned snapshots regenerated for v0.9.1; footers and any schema fields introduced since the previous version reflect the current release.
 
 - [examples/weather-dashboard](examples/weather-dashboard) shows lineage and the redaction gate on a clean session.
 - [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md), [rejection capture](examples/api-key-auth/.treetrace/rejections.json), and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.
