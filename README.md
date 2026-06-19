@@ -108,7 +108,7 @@ TreeTrace reads coding and CLI agent sessions (Claude Code, Codex, Cursor, Copil
 
 ### Signal coverage by adapter
 
-Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.9.1); cells marked `--` are confirmed absent.
+Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.10.0); cells marked `--` are confirmed absent. A plain `User:` / `Assistant:` transcript imported with `--from transcript` also captures prompt lineage, corrections, model refusals, and user declines.
 
 | Signal | Claude Code | ChatGPT | Codex | Cursor | Copilot | Gemini | Grok |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -121,12 +121,14 @@ Signal coverage depends on what each tool exports. The matrix below reflects the
 | Tool uses | full | partial | full | full | full | full | partial |
 | Files touched | full | -- | full | full | full | full | -- |
 | Bash commands | full | -- | partial | partial | partial | partial | -- |
-| Refusals / denials | full | -- | -- | -- | -- | -- | -- |
+| Refusals / denials | full | partial | partial | partial | -- | partial | -- |
 | Thinking / reasoning blocks | partial | -- | full | -- | -- | full | -- |
 | Timestamps (first/last) | full | partial | partial | partial | partial | partial | partial |
 | Per-turn latency | -- | -- | -- | -- | -- | -- | -- |
 | Corrections / scope-changes | full | full | full | full | full | full | full |
-| Rejections by kind | full | -- | -- | -- | -- | -- | -- |
+| Rejections by kind | full | partial | partial | partial | -- | partial | -- |
+
+Refusal capture: `full` on Claude Code (model refusal by text and stop-reason, user declines, tool-permission denials); `partial` on ChatGPT, Codex, Cursor, and Gemini (assistant-text model refusals). Copilot and Grok exports do not currently surface refusal signals.
 
 **Cell key:** `full` - extracted and stored in schema field. `partial` - extracted where the source format exposes it. `--` - not captured; confirmed absent in source code.
 
@@ -182,6 +184,8 @@ Claude Code (native JSONL) is the richest source: it covers all rejection kinds,
 | `npx treetrace --memory` | Write and print `.treetrace/agent-memory.md` |
 | `npx treetrace --graph` | Write `PROMPT_TREE_GRAPH.md`, a branded Mermaid graph that renders free on GitHub with no dependencies; large projects auto-summarize, and `--full` or `--summary` force a mode |
 | `npx treetrace --security` | Print a security-focused report and write `.treetrace/hallucinations.json` |
+| `npx treetrace --each` | Write one full report bundle per session into `--out-dir` (default `treetrace-reports/`), plus `INDEX.md` and `index.json` manifests; auto-redacts each bundle and fails closed |
+| `npx treetrace --deterministic` | Pin the generation timestamp so re-running on the same session produces byte-identical artifacts |
 | `npx treetrace mcp` | Start a read-only MCP server over stdio |
 | `npx treetrace --titles-only` | Compact human tree, no full prompt details |
 | `npx treetrace --redact-auto` | Redact every detected secret without prompting |

@@ -27,6 +27,11 @@ import { c, plural, truncate, TreetraceError, ExitCode } from './util.js';
 
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 
+// --deterministic pins the only run-to-run volatile field (the generation
+// timestamp) so re-running on the same session yields byte-identical artifacts,
+// for reproducible audit bundles and the "run twice, diff is empty" demo.
+const DETERMINISTIC_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+
 const HELP = `TreeTrace - turn AI coding sessions into regression-ready prompt lineage
 
 Usage:
@@ -44,6 +49,7 @@ Usage:
   treetrace --graph             write a branded Mermaid prompt-tree graph (PROMPT_TREE_GRAPH.md)
                                 large projects auto-summarize; --full / --summary force a mode
   treetrace --security          print a security-focused report for this session
+  treetrace --each              write one report bundle per session (+ INDEX manifest)
   treetrace mcp                 start a read-only MCP server over stdio
 
 Options:
@@ -64,6 +70,13 @@ Options:
                         for any value that also matches a named secret rule
   --since <YYYY-MM-DD>  only include sessions active on/after this date
                         (timestamped sessions only; plain transcripts are excluded)
+  --each                write one full report bundle per session into --out-dir,
+                        plus INDEX.md and index.json manifests (batch / GRC mode;
+                        auto-redacts each bundle, fails closed)
+  --out-dir <path>      output root for --each (default: treetrace-reports/)
+  --deterministic       pin the generation timestamp so re-running on the same
+                        session produces byte-identical artifacts (reproducible
+                        audit bundles; clean run-twice diffs)
   --quiet               suppress progress output
   --version, --help
 
@@ -84,12 +97,14 @@ export async function main(argv) {
   const projectName = detectProjectName(projectDir);
   const log = opts.quiet ? () => {} : (msg) => process.stderr.write(`${msg}\n`);
 
+  if (opts.each) return await runEach(opts, projectDir, projectName, log);
+
   const { tree, decisions, asked, sourceTool } = await loadRedactedTree(opts, projectDir, projectName, log);
 
   const ttDir = join(projectDir, '.treetrace');
   const decisionsPath = join(ttDir, 'redactions.json');
 
-  const generatedAt = new Date().toISOString();
+  const generatedAt = opts.deterministic ? DETERMINISTIC_TIMESTAMP : new Date().toISOString();
   const renderOpts = { projectName, titlesOnly: opts.titlesOnly, version: VERSION, generatedAt, sourceType: sourceTypeFor(sourceTool) };
 
   if (opts.handoff) {
@@ -206,7 +221,7 @@ export async function main(argv) {
   if (asked) log(c.dim(`  ${plural(asked, 'redaction decision')} saved to .treetrace/redactions.json`));
 }
 
-export async function loadRedactedTree(opts, projectDir, projectName, log = () => {}, { forceAuto = false } = {}) {
+export async function collectSessions(opts, projectDir, projectName, log = () => {}) {
   let sessions = [];
   let sourceTool = 'claude';
   if (opts.stdin) {
@@ -219,10 +234,12 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
       sessions = [parsePlainTranscript(text)];
       sourceTool = 'transcript';
     }
+    for (const s of sessions) s.sourceTool = sourceTool;
   } else if (opts.files.length) {
     const tools = new Set();
     for (const file of opts.files) {
       const { sessions: fileSessions, tool } = await ingestFile(file, opts.from, log);
+      for (const s of fileSessions) s.sourceTool = tool;
       sessions.push(...fileSessions);
       tools.add(tool);
     }
@@ -247,7 +264,9 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
     for (const meta of filtered) {
       if (meta.sizeBytes > 5 * 1048576)
         log(c.dim(`  parsing ${meta.sessionId.slice(0, 8)}... (${(meta.sizeBytes / 1048576).toFixed(0)} MB)`));
-      sessions.push(await parseSessionFile(meta.path, meta));
+      const parsed = await parseSessionFile(meta.path, meta);
+      parsed.sourceTool = 'claude';
+      sessions.push(parsed);
     }
   }
 
@@ -262,6 +281,10 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
     }
   }
 
+  return { sessions, sourceTool };
+}
+
+export async function treeFromSessions(sessions, opts, projectDir, log = () => {}, { forceAuto = false } = {}) {
   const nodes = classifyPrompts(sessions);
   if (!nodes.length) {
     throw new TreetraceError('no human prompts found in these sessions, nothing to trace.', ExitCode.NO_DATA);
@@ -345,6 +368,12 @@ export async function loadRedactedTree(opts, projectDir, projectName, log = () =
   }
   analyzeTree(tree);
 
+  return { tree, decisions, asked };
+}
+
+export async function loadRedactedTree(opts, projectDir, projectName, log = () => {}, { forceAuto = false } = {}) {
+  const { sessions, sourceTool } = await collectSessions(opts, projectDir, projectName, log);
+  const { tree, decisions, asked } = await treeFromSessions(sessions, opts, projectDir, log, { forceAuto });
   return { tree, decisions, asked, sourceTool };
 }
 
@@ -447,6 +476,147 @@ function requestedArtifacts(opts, artifacts) {
   if (opts.memory) requested.push(artifacts.memory);
   if (opts.analysis && !requested.length) requested.push(...Object.values(artifacts));
   return requested;
+}
+
+// --each: one full report bundle per session into --out-dir, plus an INDEX
+// manifest. Each session becomes its own tree so the bundle is a standalone,
+// auditor-defensible record. Batch is inherently unattended, so every bundle
+// auto-redacts and fails closed (forceAuto), matching the redaction-gate ethos.
+async function runEach(opts, projectDir, projectName, log) {
+  const { sessions, sourceTool } = await collectSessions(opts, projectDir, projectName, log);
+  const outRoot = resolve(projectDir, opts.outDir || 'treetrace-reports');
+  const generatedAt = opts.deterministic ? DETERMINISTIC_TIMESTAMP : new Date().toISOString();
+  const manifest = [];
+  const usedLabels = new Set();
+  let idx = 0;
+  for (const session of sessions) {
+    idx++;
+    let built;
+    try {
+      built = await treeFromSessions([session], opts, projectDir, log, { forceAuto: true });
+    } catch (err) {
+      if (err instanceof TreetraceError && err.code === ExitCode.NO_DATA) {
+        log(c.dim(`  skip ${session.sessionId || `session-${idx}`}: nothing to trace`));
+        continue;
+      }
+      throw err;
+    }
+    const { tree, decisions } = built;
+    const sessionTool = session.sourceTool || sourceTool;
+    const label = uniqueLabel(session.sessionId, idx, usedLabels);
+    const targetDir = join(outRoot, label);
+    const renderOpts = {
+      projectName,
+      titlesOnly: opts.titlesOnly,
+      version: VERSION,
+      generatedAt,
+      sourceType: sourceTypeFor(sessionTool),
+    };
+    writeBundle(targetDir, tree, decisions, renderOpts, projectDir);
+    manifest.push(summarizeSession(label, session, tree, sessionTool, targetDir, projectDir));
+    log(c.green(`✓ ${label} · ${plural(tree.stats.promptCount, 'prompt')} -> ${relativeish(targetDir, projectDir)}`));
+  }
+  if (!manifest.length) {
+    throw new TreetraceError('no sessions produced a report (nothing to trace).', ExitCode.NO_DATA);
+  }
+  writeManifest(outRoot, manifest, projectName, generatedAt);
+  log('');
+  log(`${c.green('ok')} wrote ${plural(manifest.length, 'session report')} to ${c.bold(relativeish(outRoot, projectDir))} (see INDEX.md)`);
+}
+
+function uniqueLabel(sessionId, idx, used) {
+  let base = String(sessionId || `session-${idx}`).replace(/[^A-Za-z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
+  if (!base) base = `session-${idx}`;
+  if (base.length > 64) base = base.slice(0, 64);
+  let label = base;
+  let n = 2;
+  while (used.has(label)) label = `${base}-${n++}`;
+  used.add(label);
+  return label;
+}
+
+function writeBundle(targetDir, tree, decisions, renderOpts, projectDir) {
+  const ttDir = join(targetDir, '.treetrace');
+  let md = renderMarkdown(tree, renderOpts);
+  let jsonText = JSON.stringify(renderJson(tree, renderOpts), null, 2);
+  const artifacts = analysisArtifacts(ttDir, tree, renderOpts, projectDir);
+  let report = renderReportMarkdown(tree, renderOpts);
+  md = assertClean(md, decisions, 'PROMPT_TREE.md', true);
+  jsonText = assertClean(jsonText, decisions, 'tree.json', true);
+  for (const artifact of Object.values(artifacts)) {
+    artifact.text = assertClean(artifact.text, decisions, artifact.label, true);
+  }
+  report = assertClean(report, decisions, 'TREETRACE_REPORT.md', true);
+  mkdirSync(targetDir, { recursive: true });
+  mkdirSync(ttDir, { recursive: true });
+  writeFileSync(join(targetDir, 'PROMPT_TREE.md'), md);
+  writeFileSync(join(targetDir, 'TREETRACE_REPORT.md'), report);
+  writeFileSync(join(ttDir, 'tree.json'), jsonText);
+  for (const artifact of Object.values(artifacts)) writeFileSync(artifact.path, artifact.text);
+  writeFileSync(join(ttDir, 'redactions.json'), JSON.stringify(decisions, null, 2));
+}
+
+function summarizeSession(label, session, tree, sourceTool, targetDir, projectDir) {
+  const s = tree.stats;
+  const summary = (tree.analysis && tree.analysis.summary) || analyzeTree(tree).summary;
+  const secEntry = (summary.topFailureTypes || []).find((t) => t.type === 'security_or_privacy_risk');
+  return {
+    label,
+    sessionId: session.sessionId || null,
+    source: sourceTool,
+    prompts: s.promptCount,
+    corrections: s.corrections || 0,
+    abandonedBranches: s.abandonedBranches || 0,
+    rejections: s.rejections || 0,
+    securityFlags: secEntry ? secEntry.count : 0,
+    failureSignals: summary.totalFailureSignals || 0,
+    correctionChains: summary.correctionChains || 0,
+    models: s.models || [],
+    firstTs: s.firstTs || null,
+    lastTs: s.lastTs || null,
+    dir: relativeish(targetDir, projectDir),
+  };
+}
+
+function writeManifest(outRoot, manifest, projectName, generatedAt) {
+  const totals = {
+    prompts: manifest.reduce((a, m) => a + (m.prompts || 0), 0),
+    corrections: manifest.reduce((a, m) => a + (m.corrections || 0), 0),
+    rejections: manifest.reduce((a, m) => a + (m.rejections || 0), 0),
+    securityFlags: manifest.reduce((a, m) => a + (m.securityFlags || 0), 0),
+    failureSignals: manifest.reduce((a, m) => a + (m.failureSignals || 0), 0),
+  };
+  const indexJson = {
+    schemaVersion: 1,
+    project: projectName,
+    generatedAt,
+    sessionCount: manifest.length,
+    totals,
+    sessions: manifest,
+  };
+  mkdirSync(outRoot, { recursive: true });
+  writeFileSync(join(outRoot, 'index.json'), JSON.stringify(indexJson, null, 2));
+  writeFileSync(join(outRoot, 'INDEX.md'), renderManifestMarkdown(indexJson));
+}
+
+function renderManifestMarkdown(index) {
+  const lines = [];
+  lines.push(`# TreeTrace session reports: ${index.project}`);
+  lines.push('');
+  lines.push(
+    `${index.sessionCount} sessions · ${index.totals.prompts} prompts · ${index.totals.corrections} corrections · ` +
+      `${index.totals.rejections} rejections · ${index.totals.securityFlags} security flags`
+  );
+  lines.push('');
+  lines.push('| Session | Source | Prompts | Corrections | Rejections | Security | Report |');
+  lines.push('|---|---|---|---|---|---|---|');
+  for (const m of index.sessions) {
+    lines.push(
+      `| ${m.label} | ${m.source} | ${m.prompts} | ${m.corrections} | ${m.rejections} | ${m.securityFlags} | [report](${m.label}/TREETRACE_REPORT.md) |`
+    );
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 export function assertClean(rendered, decisions, label, autoRedact = false) {
@@ -575,9 +745,12 @@ export function parseArgs(argv) {
     quiet: false,
     help: false,
     version: false,
+    each: false,
+    deterministic: false,
     from: null,
     dir: null,
     out: null,
+    outDir: null,
     reportFile: null,
     since: null,
   };
@@ -617,6 +790,9 @@ export function parseArgs(argv) {
       case '--redact-auto': opts.redactAuto = true; break;
       case '--keep-git-shas': opts.keepGitShas = true; break;
       case '--quiet': opts.quiet = true; break;
+      case '--deterministic': opts.deterministic = true; break;
+      case '--each': opts.each = true; break;
+      case '--out-dir': opts.outDir = requireValue('--out-dir'); break;
       case '--help': case '-h': opts.help = true; break;
       case '--version': case '-v': opts.version = true; break;
       case '--from':

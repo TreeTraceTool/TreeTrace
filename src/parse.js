@@ -37,7 +37,7 @@ function classifyToolResultRejection(content) {
   return { kind: 'tool_execution_error', confidence: 0.9, evidence: truncate(text, 160) };
 }
 
-function looksLikeRefusal(text) {
+export function looksLikeRefusal(text) {
   return typeof text === 'string' && text.length <= 4000 && REFUSAL_TEXT_RE.test(text);
 }
 
@@ -582,26 +582,93 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
     /^(?:#{1,4}\s*)?(?:\*\*)?(assistant|ai|chatgpt|claude|gpt|gemini|model|response)(?:\*\*)?\s*[:—-]?\s*/i;
 
   const prompts = [];
-  let current = null;
+  let current = null; // user prompt being accumulated
+  let assistantBuf = null; // assistant turn text being accumulated, or null when not in an assistant turn
   let sawMarkers = false;
+  let assistantLines = 0;
+  let rejectionCount = 0;
+  const rejectionsByKind = Object.create(null);
+
+  const record = (target, rejection) => {
+    if (!target) return;
+    if (!Array.isArray(target.rejections)) target.rejections = [];
+    target.rejections.push(rejection);
+    rejectionCount++;
+    rejectionsByKind[rejection.kind] = (rejectionsByKind[rejection.kind] || 0) + 1;
+  };
+
+  // An assistant turn just ended. If it reads as a refusal, attach a
+  // model_refusal to the user prompt that triggered it (the last one pushed).
+  // Mirrors the Claude-path text heuristic (source 'text_heuristic', confidence
+  // 0.7) so the plain-transcript fallback produces the same audit signal a
+  // structured session would, instead of silently dropping refusals.
+  const flushAssistant = () => {
+    if (assistantBuf == null) return;
+    const atext = assistantBuf.trim();
+    if (atext) {
+      assistantLines++;
+      if (looksLikeRefusal(atext)) {
+        record(prompts[prompts.length - 1], {
+          kind: 'model_refusal',
+          source: 'text_heuristic',
+          confidence: 0.7,
+          toolUseId: null,
+          tool: null,
+          ts: null,
+          evidence: truncate(atext, 160),
+        });
+      }
+    }
+    assistantBuf = null;
+  };
+
+  // A user turn just ended. Push it, and if the text itself is a decline
+  // ("no, stop", "don't do that"), attach a user_text_decline rejection,
+  // matching ingestUser (source 'text', confidence 0.8).
+  const flushUser = () => {
+    if (current && current.text.trim()) {
+      const utext = current.text.trim();
+      if (looksLikeUserTextDecline(utext)) {
+        record(current, {
+          kind: 'user_text_decline',
+          source: 'text',
+          confidence: 0.8,
+          toolUseId: null,
+          tool: null,
+          ts: null,
+          evidence: truncate(utext, 160),
+        });
+      }
+      prompts.push(current);
+    }
+    current = null;
+  };
 
   for (const line of lines) {
     const userMatch = line.match(markers);
     if (userMatch) {
       sawMarkers = true;
-      if (current && current.text.trim()) prompts.push(current);
-      current = { text: userMatch[3] ? `${userMatch[3]}\n` : '', uuid: null, parentUuid: null, ts: null };
+      flushAssistant();
+      flushUser();
+      current = { text: userMatch[3] ? `${userMatch[3]}\n` : '', uuid: null, parentUuid: null, ts: null, rejections: [] };
       continue;
     }
-    if (assistantMarkers.test(line)) {
+    const assistantMatch = line.match(assistantMarkers);
+    if (assistantMatch) {
       sawMarkers = true;
-      if (current && current.text.trim()) prompts.push(current);
-      current = null;
+      flushAssistant();
+      flushUser();
+      // Capture any text on the same line as the marker (e.g. "Assistant: I can't help"),
+      // which is the common single-line shape in pasted chat exports.
+      const inline = line.slice(assistantMatch[0].length);
+      assistantBuf = inline ? `${inline}\n` : '';
       continue;
     }
     if (current) current.text += `${line}\n`;
+    else if (assistantBuf != null) assistantBuf += `${line}\n`;
   }
-  if (current && current.text.trim()) prompts.push(current);
+  flushAssistant();
+  flushUser();
 
   if (!sawMarkers) {
     throw new TreetraceError(
@@ -620,21 +687,21 @@ export function parsePlainTranscript(text, label = 'pasted-transcript') {
     gitBranch: null,
     firstTs: null,
     lastTs: null,
-    prompts: prompts.map((p) => ({ ...p, text: p.text.trim(), actions: [], thinking: 0, rejections: [] })),
+    prompts: prompts.map((p) => ({ ...p, text: p.text.trim(), actions: [], thinking: 0, rejections: p.rejections || [] })),
     index: new Map(),
     leafUuid: null,
     activeLeafUuid: null,
     stats: {
       userLines: prompts.length,
-      assistantLines: 0,
+      assistantLines,
       toolUses: 0,
       models: [],
       filesTouched: [],
       inputTokens: 0,
       outputTokens: 0,
       interruptions: 0,
-      rejections: 0,
-      rejectionsByKind: {},
+      rejections: rejectionCount,
+      rejectionsByKind: { ...rejectionsByKind },
     },
     isContinuation: false,
   };

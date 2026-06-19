@@ -1,4 +1,4 @@
-import { newSession, finalizeSession, pushTurn, flattenParts, looksSynthetic } from './shared.js';
+import { newSession, finalizeSession, pushTurn, flattenParts, looksSynthetic, noteAssistantRefusal } from './shared.js';
 
 function conversationList(parsed) {
   if (Array.isArray(parsed)) return parsed;
@@ -46,6 +46,7 @@ function sessionFromConversation(convo, path, index) {
     } else if (role === 'assistant') {
       session.stats.assistantLines++;
       if (msg.metadata && msg.metadata.model_slug) session.stats.models.add(msg.metadata.model_slug);
+      noteAssistantRefusal(session, text);
     } else if (role === 'tool') {
       session.stats.toolUses++;
     }

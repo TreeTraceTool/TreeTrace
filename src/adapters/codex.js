@@ -6,6 +6,7 @@ import {
   addThinking,
   flattenParts,
   looksSynthetic,
+  noteAssistantRefusal,
   readJsonl,
 } from './shared.js';
 
@@ -50,6 +51,7 @@ export function parseCodex(text, path, sessionId) {
         pushTurn(session, ++turn, body, ts);
       } else if (payload.role === 'assistant') {
         session.stats.assistantLines++;
+        noteAssistantRefusal(session, flattenParts(payload.content));
       }
       continue;
     }

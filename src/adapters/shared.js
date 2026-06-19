@@ -1,3 +1,6 @@
+import { truncate } from '../util.js';
+import { looksLikeRefusal } from '../parse.js';
+
 export function emptyStats() {
   return {
     userLines: 0,
@@ -93,6 +96,24 @@ export function addRejection(session, rejection) {
   session.stats.rejections = (session.stats.rejections || 0) + 1;
   session.stats.rejectionsByKind = session.stats.rejectionsByKind || Object.create(null);
   session.stats.rejectionsByKind[rejection.kind] = (session.stats.rejectionsByKind[rejection.kind] || 0) + 1;
+}
+
+// Scan assistant turn text for a refusal and, if found, record a model_refusal
+// against the user prompt that triggered it (the current prompt). Mirrors the
+// native Claude-path text heuristic (source 'text_heuristic', confidence 0.7)
+// so structured-export adapters capture refusals instead of dropping them.
+export function noteAssistantRefusal(session, text) {
+  if (!session || !session._currentPrompt) return;
+  if (!looksLikeRefusal(text)) return;
+  addRejection(session, {
+    kind: 'model_refusal',
+    source: 'text_heuristic',
+    confidence: 0.7,
+    toolUseId: null,
+    tool: null,
+    ts: null,
+    evidence: truncate(typeof text === 'string' ? text : '', 160),
+  });
 }
 
 export function flattenParts(parts) {

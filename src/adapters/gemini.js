@@ -6,6 +6,7 @@ import {
   addThinking,
   flattenParts,
   looksSynthetic,
+  noteAssistantRefusal,
   readJsonl,
 } from './shared.js';
 
@@ -32,6 +33,7 @@ function ingestRecord(session, rec, counters) {
   } else if (type === 'gemini' || type === 'model' || type === 'assistant') {
     session.stats.assistantLines++;
     if (rec.model) session.stats.models.add(rec.model);
+    noteAssistantRefusal(session, partsToText(rec.content));
     if (Array.isArray(rec.toolCalls)) {
       for (const call of rec.toolCalls) {
         session.stats.toolUses++;

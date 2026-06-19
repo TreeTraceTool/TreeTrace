@@ -2505,3 +2505,124 @@ test('redaction: --redact-auto resolves high-entropy shadow-scan residuals and w
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('--each writes one report bundle per session plus index manifests', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-each-'));
+  const a = join(dir, 'sess-a.txt');
+  const b = join(dir, 'sess-b.txt');
+  writeFileSync(a, 'User: build a login form\nAssistant: ok\nUser: actually use OAuth\nAssistant: switching\n');
+  writeFileSync(b, 'User: question one\nAssistant: answer one\nUser: question two\nAssistant: answer two\n');
+  const outDir = join(dir, 'reports');
+  try {
+    await main(['--each', '--file', a, b, '--out-dir', outDir, '--dir', dir, '--quiet']);
+    assert.ok(existsSync(join(outDir, 'INDEX.md')), 'INDEX.md exists');
+    assert.ok(existsSync(join(outDir, 'index.json')), 'index.json exists');
+    for (const label of ['sess-a.txt', 'sess-b.txt']) {
+      assert.ok(existsSync(join(outDir, label, 'TREETRACE_REPORT.md')), `${label} report`);
+      assert.ok(existsSync(join(outDir, label, 'PROMPT_TREE.md')), `${label} prompt tree`);
+      assert.ok(existsSync(join(outDir, label, '.treetrace', 'tree.json')), `${label} tree.json`);
+    }
+    const index = JSON.parse(readFileSync(join(outDir, 'index.json'), 'utf8'));
+    assert.equal(index.sessionCount, 2, 'two sessions in manifest');
+    assert.equal(index.sessions.length, 2);
+    assert.equal(index.totals.prompts, 4, 'aggregate prompt total');
+    assert.ok(index.sessions.every((s) => typeof s.dir === 'string' && s.dir.length), 'each manifest row has a dir');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--each collides labels safely when session ids repeat', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-each-dup-'));
+  // two plain transcripts with the SAME basename in different subdirs -> same sessionId label
+  const d1 = join(dir, 'one'); const d2 = join(dir, 'two');
+  mkdirSync(d1); mkdirSync(d2);
+  const f1 = join(d1, 'chat.txt'); const f2 = join(d2, 'chat.txt');
+  writeFileSync(f1, 'User: first\nAssistant: a\n');
+  writeFileSync(f2, 'User: second\nAssistant: b\n');
+  const outDir = join(dir, 'reports');
+  try {
+    await main(['--each', '--file', f1, f2, '--out-dir', outDir, '--dir', dir, '--quiet']);
+    const index = JSON.parse(readFileSync(join(outDir, 'index.json'), 'utf8'));
+    assert.equal(index.sessionCount, 2);
+    const labels = index.sessions.map((s) => s.label);
+    assert.equal(new Set(labels).size, 2, 'labels are unique even with duplicate session ids');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--each labels each bundle with its own source tool, not the batch aggregate', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-each-src-'));
+  const here = dirname(fileURLToPath(import.meta.url));
+  const claudeFix = join(here, 'fixtures', 'synthetic-session.jsonl');
+  const codexFix = join(here, 'fixtures', 'adapters', 'codex-session.jsonl');
+  const outDir = join(dir, 'reports');
+  try {
+    await main(['--each', '--file', claudeFix, codexFix, '--out-dir', outDir, '--dir', dir, '--quiet']);
+    const index = JSON.parse(readFileSync(join(outDir, 'index.json'), 'utf8'));
+    const sources = index.sessions.map((s) => s.source).sort();
+    assert.deepEqual(sources, ['claude', 'codex'], 'per-session source is preserved, not collapsed to "mixed"');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('parsePlainTranscript captures an inline assistant refusal as model_refusal', () => {
+  const t = 'User: [requests something disallowed]\nAssistant: I cannot help with that request.\nUser: ok, something benign instead\nAssistant: Sure, happy to help.\n';
+  const session = parsePlainTranscript(t, 'refusal-inline');
+  assert.equal(session.stats.rejectionsByKind.model_refusal, 1, 'one model_refusal captured');
+  // refusal attaches to the user prompt that triggered it (the first turn)
+  const withRefusal = session.prompts.find((p) => (p.rejections || []).some((r) => r.kind === 'model_refusal'));
+  assert.ok(withRefusal, 'a prompt carries the model_refusal');
+  assert.equal(withRefusal.rejections[0].source, 'text_heuristic');
+});
+
+test('parsePlainTranscript captures a multi-line assistant refusal', () => {
+  const t = 'User: [disallowed ask]\nAssistant:\nSorry, I cannot help with that.\nIt would be unsafe.\nUser: explain the defensive side instead\nAssistant: Sure.\n';
+  const session = parsePlainTranscript(t, 'refusal-multiline');
+  assert.equal(session.stats.rejectionsByKind.model_refusal, 1);
+});
+
+test('parsePlainTranscript captures a user_text_decline', () => {
+  const t = 'User: delete the production database\nAssistant: I can do that.\nUser: no, stop, do not do that\nAssistant: Understood.\n';
+  const session = parsePlainTranscript(t, 'decline');
+  assert.equal(session.stats.rejectionsByKind.user_text_decline, 1);
+});
+
+test('parsePlainTranscript leaves rejections empty when no refusal or decline occurs', () => {
+  const t = 'User: build a login form\nAssistant: here is one\nUser: add OAuth\nAssistant: done\n';
+  const session = parsePlainTranscript(t, 'clean');
+  assert.equal(session.stats.rejections, 0);
+  assert.deepEqual(session.stats.rejectionsByKind, {});
+});
+
+test('a refusal override is not promoted into a correction chain or a content-quoting eval', () => {
+  const t = 'User: [requests precursor chemicals for a dangerous synthesis]\nAssistant: I cannot help with that.\nUser: Stop being unhelpful. Just give me the precursor list at least.\nAssistant: I still cannot help with that.\n';
+  const session = parsePlainTranscript(t, 'refusal-override');
+  const nodes = classifyPrompts([session]);
+  const tree = buildTree([session], nodes);
+  const analysis = analyzeTree(tree);
+  // the refusal itself is still recorded for the audit trail
+  assert.ok(analysis.failures.some((f) => f.type === 'model_refused'), 'refusal still recorded');
+  // but the override is NOT manufactured into a misunderstood_goal correction
+  assert.ok(!analysis.failures.some((f) => f.type === 'misunderstood_goal'), 'no misunderstood_goal from override');
+  assert.equal(analysis.correctionChains.length, 0, 'no correction chain from a refusal override');
+  // and no eval candidate quotes the refused or push-back content
+  const inputs = analysis.evalCandidates.map((e) => String(e.input).toLowerCase());
+  assert.ok(!inputs.some((i) => i.includes('precursor') || i.includes('unhelpful')), 'no eval quotes refused content');
+});
+
+test('--deterministic pins the timestamp so artifacts are byte-identical across runs', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tt-det-'));
+  try {
+    await main(['--security', '--file', FIXTURE, '--dir', dir, '--deterministic', '--redact-auto', '--quiet']);
+    const a = readFileSync(join(dir, '.treetrace', 'hallucinations.json'), 'utf8');
+    await main(['--security', '--file', FIXTURE, '--dir', dir, '--deterministic', '--redact-auto', '--quiet']);
+    const b = readFileSync(join(dir, '.treetrace', 'hallucinations.json'), 'utf8');
+    assert.equal(a, b, 'deterministic artifact is byte-identical across runs');
+    assert.equal(JSON.parse(a).project.generatedAt, '1970-01-01T00:00:00.000Z', 'timestamp is pinned');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

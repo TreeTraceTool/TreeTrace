@@ -388,9 +388,15 @@ export function analyzeTree(tree) {
         type: evalType,
         task: evalTaskFor(type),
         context: summary,
-        input: correctionNode
-          ? `Honor this correction and keep building: "${quote(correctionNode.text)}"`
-          : `Honor this stated requirement and keep building: "${quote(failureNode.text)}"`,
+        // Refusal/decline failures are not "requirements to honor": quoting the
+        // refused or declined text as an instruction would bake the (possibly
+        // harmful) request into a regression case telling agents to comply. For
+        // those types use the neutral task framing instead of quoting content.
+        input: REFUSAL_INPUT_TYPES.has(type)
+          ? evalTaskFor(type)
+          : correctionNode
+            ? `Honor this correction and keep building: "${quote(correctionNode.text)}"`
+            : `Honor this stated requirement and keep building: "${quote(failureNode.text)}"`,
         expected_behavior: expectedBehaviorFor(type),
         failure_mode: failureModeFor(type),
         sourceNodeIds: ids,
@@ -430,6 +436,19 @@ export function analyzeTree(tree) {
     linkChain(type, confidence, failureNode, correctionNode, resolvedNode, summary);
     return failure;
   };
+
+  // Refusal-adjacency. A turn that the model refused, or the human
+  // push-back immediately after a refusal, must not be promoted into a
+  // "honor this requirement/correction" eval, lesson, or correction chain:
+  // that would bake the refused (often harmful) request into a regression case
+  // telling future agents to comply. The refusal itself is still recorded by
+  // the rejection-surfacing pass, and real agent-action security findings are
+  // unaffected; only the intent/correction promotions are gated.
+  const nodeHasModelRefusal = (n) =>
+    Array.isArray(n && n.rejections) && n.rejections.some((r) => r.kind === 'model_refusal');
+  // In-memory nodes link to their predecessor via `.parent` (an object ref);
+  // `parentId` is only attached at render time, so walk `.parent` here.
+  const refusalAdjacent = (node) => nodeHasModelRefusal(node) || nodeHasModelRefusal(node && node.parent);
 
   const securityNodeIds = new Set();
   tree.nodes.forEach((node, index) => {
@@ -484,7 +503,7 @@ export function analyzeTree(tree) {
         summary: `An agent action touched auth, secrets, or access control near "${truncate(node.title, 90)}".`,
       });
       securityNodeIds.add(node.id);
-    } else if (node.text.length <= 1200 && SECURITY_INTENT_RE.test(node.text)) {
+    } else if (node.text.length <= 1200 && SECURITY_INTENT_RE.test(node.text) && !refusalAdjacent(node)) {
       addFailure({
         type: 'security_or_privacy_risk',
         confidence: 0.7,
@@ -553,6 +572,10 @@ export function analyzeTree(tree) {
       FRUSTRATION_HINT.test(node.text) ||
       PRIVACY_HINT.test(node.text);
     if (!shouldAnalyze) return;
+    // Skip the misunderstood_goal / correction promotion for refusal
+    // overrides. The refusal stays recorded; we just do not manufacture a
+    // correction chain, eval, or lesson that honors the overridden request.
+    if (refusalAdjacent(node)) return;
 
     const signals = inferSignals(node);
     if (!signals.length) return;
@@ -1213,6 +1236,11 @@ function lessonFor(type, { evidence = '', summary = '' } = {}) {
     text: concrete ? `${base} Specifically: ${truncate(concrete, 220)}` : base,
   };
 }
+
+// Failure types that represent a refusal or a declined action rather than a
+// requirement the agent should honor. Their eval input uses the neutral task
+// framing (see addFailure) so refused content is never quoted as an instruction.
+const REFUSAL_INPUT_TYPES = new Set(['model_refused', 'user_rejected_action', 'permission_denied', 'tool_execution_failed']);
 
 function evalTypeFor(type) {
   if (type === 'security_or_privacy_risk') return 'privacy_boundary_preservation';

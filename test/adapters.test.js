@@ -260,3 +260,42 @@ test('cursor import emits actions from exported tool calls for a verified securi
   assert.ok(sec, 'cursor import should produce a verified security signal');
   assert.equal(sec.model, 'claude-sonnet-4-6');
 });
+
+test('adapters capture an assistant refusal as model_refusal', () => {
+  // Gemini
+  const gem = JSON.stringify({ sessionId: 'g1', messages: [
+    { type: 'user', content: '[disallowed ask]' },
+    { type: 'gemini', content: [{ text: "I'm sorry, I cannot help with that." }], model: 'gemini-3' },
+  ] });
+  assert.equal(adaptFrom('gemini', gem, 'g.json')[0].stats.rejectionsByKind.model_refusal, 1, 'gemini');
+
+  // Codex
+  const cdx = [
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: '[disallowed ask]' } }),
+    JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'I cannot help with that request.' }] } }),
+  ].join('\n');
+  assert.equal(adaptFrom('codex', cdx, 'c.jsonl')[0].stats.rejectionsByKind.model_refusal, 1, 'codex');
+
+  // ChatGPT export (array of conversations)
+  const cg = JSON.stringify([{ title: 't', mapping: {
+    a: { id: 'a', message: { author: { role: 'user' }, content: { content_type: 'text', parts: ['[disallowed ask]'] }, create_time: 1 } },
+    b: { id: 'b', message: { author: { role: 'assistant' }, content: { content_type: 'text', parts: ["I'm sorry, I can't help with that."] }, create_time: 2 } },
+  } }]);
+  assert.equal(adaptFrom('chatgpt', cg, 'x.json')[0].stats.rejectionsByKind.model_refusal, 1, 'chatgpt');
+
+  // Cursor exported session
+  const cur = JSON.stringify({ messages: [
+    { role: 'user', content: '[disallowed ask]' },
+    { role: 'assistant', content: 'I cannot help with that.', model: 'claude-3.5' },
+  ], workspaceId: 'w' });
+  assert.equal(adaptFrom('cursor', cur, 'cur.json')[0].stats.rejectionsByKind.model_refusal, 1, 'cursor');
+});
+
+test('a benign assistant turn produces no false refusal', () => {
+  const gem = JSON.stringify({ sessionId: 'g2', messages: [
+    { type: 'user', content: 'help me write a function' },
+    { type: 'gemini', content: [{ text: 'Sure, here is a function that does that.' }], model: 'gemini-3' },
+  ] });
+  const s = adaptFrom('gemini', gem, 'g2.json')[0];
+  assert.equal(s.stats.rejections, 0, 'no false positive on a helpful answer');
+});
