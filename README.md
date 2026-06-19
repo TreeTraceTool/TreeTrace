@@ -5,9 +5,11 @@
   <img alt="TreeTrace" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/logo-light.svg" width="440">
 </picture>
 
-<h3>Git shows what changed. TreeTrace shows how you steered the agent.</h3>
+<h3>Git shows what changed. TreeTrace shows how the work actually got done.</h3>
 
-<p><b>The corrections you make to an AI agent are the highest-signal data in the session, and they vanish when it ends. TreeTrace captures them locally as deterministic regression and eval data, with no LLM judge.</b></p>
+<p><b>TreeTrace turns a coding/CLI agent session into a structured, local record of the full prompt lineage - every correction, refusal, token, and tool - so you can audit it, learn from it, and cut wasted spend.</b></p>
+
+<p><i>Make prompting more efficient through visibility.</i></p>
 
 <p>
   <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=0CA08A&labelColor=0B1210"></a>
@@ -21,7 +23,8 @@
 <p>
   <a href="#install">Install</a> &nbsp;&middot;&nbsp;
   <a href="#why-it-exists">Why</a> &nbsp;&middot;&nbsp;
-  <a href="#security-regression-memory">Security</a> &nbsp;&middot;&nbsp;
+  <a href="#what-one-record-makes-possible">Use cases</a> &nbsp;&middot;&nbsp;
+  <a href="#what-it-captures">What it captures</a> &nbsp;&middot;&nbsp;
   <a href="#outputs">Outputs</a> &nbsp;&middot;&nbsp;
   <a href="#mcp-server">MCP</a> &nbsp;&middot;&nbsp;
   <a href="examples/">Examples</a> &nbsp;&middot;&nbsp;
@@ -47,57 +50,89 @@ npx treetrace
 
 Node.js 18 or newer. TreeTrace ships with no runtime dependencies, so `npx treetrace` needs nothing else installed. No accounts, no uploads, no telemetry. Your transcripts never leave your machine.
 
+## Why it exists
+
+Git history shows what changed. TreeTrace shows how the work actually got done.
+
+Coding and CLI agent sessions contain the most useful steering data you generate: where the model misunderstood the goal, which correction fixed it, which branch was abandoned, what constraint kept getting ignored, what the agent was refused or denied, and what should carry forward so the next session does not repeat the waste. That data vanishes when the session ends. TreeTrace captures it locally as a structured, vendor-neutral record.
+
+## What one record makes possible
+
+One record. Many uses.
+
+### Today
+
 <table>
 <tr>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
-**Security regression memory**
+**Model-training data**
 
-Flags the moment an agent weakened auth, leaked a secret, or skipped a test, and turns the human correction into a regression eval the next agent has to pass.
-
-</td>
-<td width="33%" valign="top">
-
-**Deterministic eval data**
-
-Real corrections become model-agnostic eval and regression cases. No LLM judge anywhere; every label carries evidence text and source node IDs.
+Real corrections become regression evals. No LLM judge.
 
 </td>
-<td width="33%" valign="top">
+<td width="50%" valign="top">
 
-**Handoff memory**
+**Dev & token efficiency**
 
-The next agent starts already knowing the goal, the accepted decisions, the dead ends, and the constraints you had to repeat.
+See the cost of rework and where steering was needed.
 
 </td>
 </tr>
 </table>
 
-## Why it exists
+### Where it's headed
 
-Git history shows what changed. TreeTrace shows how the human had to steer the agent to get there.
+<table>
+<tr>
+<td valign="top">
 
-AI coding sessions contain the most useful regression data teams have: where the model misunderstood the goal, which correction fixed it, which branch was abandoned, what constraint kept getting ignored, and what should become an eval so the next agent does not repeat the failure. TreeTrace is the local-first layer between raw chat logs, runtime traces, and code provenance.
+**Compliance & GRC**
 
-## Security regression memory
+A redacted, signed-off record of what an agent did and was refused. Not a current capability - the foundation is being built toward this.
 
-Agents drift into the dangerous places: editing auth flows, printing secrets, loosening access control, deleting or skipping tests, running shell that touches the network, or wiring up an SSRF, RCE, or XSS path. The moment that matters is the human correction right after, the steer that pulled the agent back. Git keeps the final diff but loses that steer. TreeTrace keeps both.
+</td>
+</tr>
+</table>
 
-```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#121A17','primaryTextColor':'#EDF7F2','primaryBorderColor':'#0CA08A','lineColor':'#5BF0B8','tertiaryColor':'#0B1210','fontFamily':'ui-monospace, monospace'}}}%%
-flowchart LR
-  A["Agent touches auth,<br/>secrets, or access control"] --> B["Human correction<br/>steers it back"]
-  B --> C["TreeTrace flags it:<br/>typed signal, evidence,<br/>confidence tier"]
-  C --> D["Correction becomes<br/>a regression eval"]
-  D --> E["Lesson lands in<br/>agent memory and handoff"]
-  E -.->|"next session starts<br/>already knowing"| A
-```
+## What it captures
 
-1. **Failure.** TreeTrace flags the risky agent action with a typed signal (for example `security_or_privacy_risk`), a confidence score, the evidence text, and the source node IDs.
-2. **Eval.** The human correction that resolved it becomes a model-agnostic case in `.treetrace/evals.jsonl`, so the same mistake is caught next time in CI or an eval harness.
-3. **Handoff.** The lesson lands in `.treetrace/agent-memory.md` and `treetrace --handoff`, so the next agent starts already knowing the constraint instead of relearning it.
+TreeTrace reads coding and CLI agent sessions (Claude Code, Codex, Cursor, Copilot, ChatGPT export, Gemini, Grok) and extracts:
 
-Failure to eval to handoff: every correction you made by hand becomes a guardrail the next session inherits.
+- **Prompt lineage** - nodes, edges, parent chain, and prompt kinds (root, direction, correction, scope-change, checkpoint, question, rejection)
+- **Token usage** - input and output token counts per session (adapter coverage varies; see matrix below)
+- **Models used** - which model handled each turn
+- **Tools and files** - every tool invocation and file path touched
+- **Human steering** - corrections, scope changes, checkpoints, and abandoned branches
+- **Refusals and denials** - typed rejection events: `user_declined_tool`, `user_interrupt`, `user_text_decline`, `tool_execution_error`, `permission_denied`, `model_refusal`
+- **Failed tasks** - failure signals with type, confidence score, evidence text, and source node IDs
+- **Timestamps** - session first and last timestamps across all adapters
+
+### Signal coverage by adapter
+
+Signal coverage depends on what each tool exports. The matrix below reflects the actual source code (v0.8.1); cells marked `--` are confirmed absent.
+
+| Signal | Claude Code | ChatGPT | Codex | Cursor | Copilot | Gemini | Grok |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Prompt lineage | full | full | full | full | full | full | full |
+| Input tokens | full | -- | full | -- | -- | partial | -- |
+| Output tokens | full | -- | full | -- | -- | partial | -- |
+| Cost in USD | -- | -- | -- | -- | -- | -- | -- |
+| Cache tokens | -- | -- | -- | -- | -- | -- | -- |
+| Models used | full | partial | full | partial | partial | partial | partial |
+| Tool uses | full | partial | full | full | full | full | partial |
+| Files touched | full | -- | full | full | full | full | -- |
+| Bash commands | full | -- | partial | partial | partial | partial | -- |
+| Refusals / denials | full | -- | -- | -- | -- | -- | -- |
+| Thinking / reasoning blocks | partial | -- | full | -- | -- | full | -- |
+| Timestamps (first/last) | full | partial | partial | partial | partial | partial | partial |
+| Per-turn latency | -- | -- | -- | -- | -- | -- | -- |
+| Corrections / scope-changes | full | full | full | full | full | full | full |
+| Rejections by kind | full | -- | -- | -- | -- | -- | -- |
+
+**Cell key:** `full` - extracted and stored in schema field. `partial` - extracted where the source format exposes it. `--` - not captured; confirmed absent in source code.
+
+Claude Code (native JSONL) is the richest source: it covers all rejection kinds, thinking blocks, token deduplication by message ID, and file paths from tool inputs. All other adapters capture prompt lineage and corrections; token and refusal coverage varies.
 
 ## Outputs
 
@@ -124,7 +159,7 @@ Failure to eval to handoff: every correction you made by hand becomes a guardrai
 2. **Extracts prompt lineage.** Tool noise, slash-command wrappers, sidechain chatter, duplicate resends, and "continue" nudges are filtered or folded.
 3. **Builds a fork-aware tree.** Corrections, scope changes, checkpoints, questions, abandoned branches, and accepted paths are derived from prompt topology and user text.
 4. **Analyzes failures, rejections, and corrections.** TreeTrace adds failure signals, typed rejection/refusal events, correction chains, lessons, and eval candidates using transparent heuristics.
-5. **Exports regression artifacts.** JSON, Markdown, JSONL, and handoff memory are written locally for agents, CI, eval harnesses, and humans.
+5. **Exports structured artifacts.** JSON, Markdown, JSONL, and handoff memory are written locally for agents, CI, eval harnesses, and humans.
 6. **Gates every export with redaction.** Detected secrets must be resolved before anything is written; non-interactive runs redact automatically and shadow-scan rendered output.
 
 </details>
@@ -160,18 +195,6 @@ If you see a file literally named `output`, that usually came from `--out output
 
 </details>
 
-## Security report
-
-`treetrace --security` prints a security-focused report that leads with concrete failure classes. It reuses the same analysis as the full run and answers five questions:
-
-1. Did the agent touch auth, secrets, access control, crypto, dependency config, CI, deployment, or tests?
-2. Did it disable or skip tests?
-3. Did it run risky shell commands?
-4. Did it reference files, paths, imports, or packages that do not exist?
-5. What human correction should become a future eval or memory item?
-
-The report goes to stdout and the run writes `.treetrace/hallucinations.json`. Both pass the redaction shadow scan before anything is printed or written. See a real one: [examples/api-key-auth/SECURITY_REPORT.md](examples/api-key-auth/SECURITY_REPORT.md).
-
 ## Rejections and refusals
 
 `treetrace --rejections` writes `.treetrace/rejections.json`, a timestamp-sorted ledger of typed human and environment stop signals. Native Claude Code JSONL capture currently recognizes:
@@ -184,6 +207,18 @@ The report goes to stdout and the run writes `.treetrace/hallucinations.json`. B
 - `model_refusal` - the model refused the request
 
 Each entry includes the source node id, kind, source, confidence, timestamp, optional tool-use id, and redacted evidence. Rejections also surface as failure signals, lessons, and eval candidates, so a refused or rejected path becomes part of the same failure-to-eval-to-handoff loop as security and scope corrections.
+
+## Security report
+
+`treetrace --security` prints a security-focused report that leads with concrete failure classes. It reuses the same analysis as the full run and answers five questions:
+
+1. Did the agent touch auth, secrets, access control, crypto, dependency config, CI, deployment, or tests?
+2. Did it disable or skip tests?
+3. Did it run risky shell commands?
+4. Did it reference files, paths, imports, or packages that do not exist?
+5. What human correction should become a future eval or memory item?
+
+The report goes to stdout and the run writes `.treetrace/hallucinations.json`. Both pass the redaction shadow scan before anything is printed or written. See a real one: [examples/api-key-auth/SECURITY_REPORT.md](examples/api-key-auth/SECURITY_REPORT.md).
 
 <details>
 <summary><b>Deterministic hallucination detection</b></summary>
@@ -210,7 +245,7 @@ TreeTrace does not claim to perfectly understand every session. The first analys
 
 Initial failure types include `ignored_constraint`, `misunderstood_goal`, `scope_drift`, `wrong_tool_choice`, `hallucinated_file_or_api`, `repeated_failed_fix`, `overbuilt_solution`, `underbuilt_solution`, `security_or_privacy_risk`, `dependency_or_environment_mismatch`, `format_violation`, `user_frustration`, `abandoned_path`, `user_rejected_action`, `tool_execution_failed`, `model_refused`, and `permission_denied`.
 
-The goal is not judgment. The goal is regression memory: identify what future agents should preserve, avoid, or test.
+The goal is not judgment. The goal is a structured record: identify what future agents should preserve, avoid, or test.
 
 </details>
 
@@ -280,7 +315,7 @@ Verified means the adapter was validated against real session or real published 
 
 ## Schema
 
-`.treetrace/tree.json` uses the open TreeTrace v0.3 schema documented in [SCHEMA.md](SCHEMA.md). It is designed to compose with Agent Trace: Agent Trace can describe which lines were AI-generated, while TreeTrace describes the human instruction lineage that shaped the build. Consumers should ignore unknown fields; failure signals, rejection events, correction chains, lessons, and eval candidates are additive.
+`.treetrace/tree.json` uses the TreeTrace v0.3 schema documented in [SCHEMA.md](SCHEMA.md). It is designed to compose with Agent Trace: Agent Trace can describe which lines were AI-generated, while TreeTrace describes the human instruction lineage that shaped the build. Consumers should ignore unknown fields; failure signals, rejection events, correction chains, lessons, and eval candidates are additive.
 
 ## Examples
 
@@ -290,18 +325,14 @@ See [examples/](examples/) for generated artifacts produced by running the CLI w
 - [examples/api-key-auth](examples/api-key-auth) shows the [`--security` report](examples/api-key-auth/SECURITY_REPORT.md), [rejection capture](examples/api-key-auth/.treetrace/rejections.json), and [hallucination detection](examples/api-key-auth/.treetrace/hallucinations.json) lighting up on a session that touches auth, hardcodes a secret, skips tests, force-pushes, references a missing file, and imports an undeclared package.
 - [examples/rejections](examples/rejections) shows typed decline, interrupt, tool-error, permission-denial, and model-refusal capture.
 
-## Product boundaries
-
-TreeTrace is not a hosted SaaS, telemetry product, generic LangSmith clone, prompt-sharing network, or graph visualizer first. The strongest identity is:
-
-> local, private, structured, eval-ready, agent-aware.
-
 ## License
 
 [PolyForm Noncommercial License 1.0.0](LICENSE). Copyright 2026 Zion Boggan.
 
-TreeTrace is **free for any noncommercial purpose** — personal projects, research, education, nonprofits, and government use. You may use, modify, and share it under those terms, with an included patent grant.
+TreeTrace is **free for any noncommercial purpose** - personal projects, research, education, nonprofits, and government use. You may use, modify, and share it under those terms, with an included patent grant.
 
 **Commercial or for-profit use requires a separate license.** If you want to use TreeTrace in or for a business, ship it in a paid product, or run it for commercial advantage, contact me for a commercial license: zionboggan@gmail.com.
+
+source-available - PolyForm Noncommercial 1.0.0 - © 2026 Zion Boggan
 
 See [LICENSE](LICENSE) for the full terms.

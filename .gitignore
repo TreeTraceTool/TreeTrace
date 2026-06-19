@@ -1,6 +1,7 @@
 node_modules/
 *.log
 .DS_Store
+.npmrc
 
 .treetrace/redactions.json
 **/.treetrace/redactions.json

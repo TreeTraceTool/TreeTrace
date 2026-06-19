@@ -1,5 +1,5 @@
 name: 'TreeTrace'
-description: 'Generate local prompt-lineage, human report, failure-analysis, eval, memory, and PROMPT_TREE.md artifacts.'
+description: 'Prompt-lineage visibility for coding & CLI agent sessions. Generates a structured local record of every correction, refusal, token, and tool from your agent transcript.'
 author: 'Zion Boggan'
 branding:
   icon: 'git-branch'
