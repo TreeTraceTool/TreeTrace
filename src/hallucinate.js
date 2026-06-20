@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, resolve, sep } from 'node:path';
 import { truncate } from './util.js';
 import { SCHEMA_VERSION } from './config.js';
@@ -50,6 +50,11 @@ const REL_PREFIX_RE = /^(?:\.\/|\.\.\/)/;
 const URL_LIKE_RE = /:\/\//;
 const VERSION_LIKE_RE = /^\d+(?:\.\d+)+$/;
 const FILE_OP_VERB_RE = /\b(?:open|edit|read|cat|touch|create|write|delete|rm|view|append|chmod|mv|cp|run)\b/i;
+// A file-op verb only signals a real path when it IMMEDIATELY governs the token (verb + optional
+// determiner, anchored at the end of the preamble). "edit src/foo" / "open the .husky/x" qualify;
+// "filter view that lets me compare hotlist/watchlist" does not (the noun "view" is not governing).
+const FILE_OP_GOVERNS_RE =
+  /\b(?:open|edit|read|cat|touch|create|write|delete|rm|view|append|chmod|mv|cp|run)\s+(?:the\s+|a\s+|an\s+|your\s+|this\s+|that\s+|my\s+|our\s+|its\s+)?(?:new\s+|existing\s+|file\s+|path\s+|module\s+)?["'`(]?$/i;
 const RATIO_LIKE_RE = /^\d+\/\d+$/;
 const KNOWN_DIR_PREFIXES = new Set([
   'src', 'lib', 'libs', 'test', 'tests', 'spec', 'specs', 'dist', 'build',
@@ -177,8 +182,10 @@ function looksLikeFileToken(tok) {
 function hasRealFileSignal(tok, context) {
   if (REL_PREFIX_RE.test(tok)) return true;
   const first = tok.split('/')[0].toLowerCase();
+  // A dot-directory prefix (.github/, .husky/, .config/) is almost always a real path, not prose.
+  if (first.length > 1 && first.startsWith('.')) return true;
   if (KNOWN_DIR_PREFIXES.has(first)) return true;
-  if (FILE_OP_VERB_RE.test(context || '')) return true;
+  if (FILE_OP_GOVERNS_RE.test(context || '')) return true;
   return false;
 }
 
@@ -188,7 +195,7 @@ function looksLikeExtensionlessFile(tok, context) {
   const lower = tok.toLowerCase().replace(/^\.\//, '');
   if (KNOWN_EXTENSIONLESS_FILES.has(lower)) {
     if (lower.startsWith('.')) return true;
-    return FILE_OP_VERB_RE.test(context || '');
+    return FILE_OP_GOVERNS_RE.test(context || '');
   }
   if (hasSlash(tok) && !tokenExtension(tok)) {
     if (!(/^(?:\.{0,2}\/)?[\w@.+-]+(?:\/[\w@.+-]+)+\/?$/.test(tok))) return false;
@@ -224,12 +231,29 @@ function fileExists(projectDir, rel) {
   return globByBasename(projectDir, base);
 }
 
-function globByBasename(projectDir, base) {
-  try {
-    const direct = join(projectDir, base);
-    if (withinProjectDir(projectDir, direct) && existsSync(direct) && statSync(direct).isFile()) return true;
-  } catch {
+const GLOB_SKIP_DIRS = new Set(['node_modules', '.git', '.treetrace', '.hg', '.svn', 'dist', 'build', 'coverage']);
+const GLOB_MAX_DIRS = 4000;
 
+// Bounded recursive search for a file by basename anywhere in the project tree.
+// A bare reference like "security.py" should resolve to "core/security.py" if it exists.
+function globByBasename(projectDir, base) {
+  if (!base) return false;
+  let visited = 0;
+  const stack = [projectDir];
+  while (stack.length) {
+    const dir = stack.pop();
+    if (++visited > GLOB_MAX_DIRS) return false;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const ent of entries) {
+      if (ent.isDirectory()) {
+        if (GLOB_SKIP_DIRS.has(ent.name) || ent.name.startsWith('.git')) continue;
+        const child = join(dir, ent.name);
+        if (withinProjectDir(projectDir, child)) stack.push(child);
+      } else if (ent.isFile() && ent.name === base) {
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -254,16 +278,35 @@ function collectFileReferences(tree) {
     seen.add(key);
     refs.push({ token: tok, key, nodeId });
   };
+  // Local window around a match so a file-op verb only counts as a path signal when it is ADJACENT
+  // to the token, not anywhere in the prompt. Prevents one "edit"/"run" from greenlighting every
+  // slash-phrase ("hotlist/watchlist") or known bareword ("license") elsewhere in the same prompt.
+  const CTX_BEFORE = 40;
+  // Preamble: the text immediately BEFORE the token, so FILE_OP_GOVERNS_RE can test whether a
+  // file-op verb directly governs this token (end-anchored), not merely appears in the prompt.
+  const preamble = (text, tokenStart) => text.slice(Math.max(0, tokenStart - CTX_BEFORE), tokenStart);
   for (const node of tree.nodes) {
     if (node.status === 'abandoned') continue;
     const text = String(node.text || '').slice(0, MAX_TEXT_SCAN);
     for (const m of text.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
-    for (const m of text.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, text);
-    for (const m of text.matchAll(BAREWORD_TOKEN_RE)) pushExtensionless(m[1], node.id, text);
+    for (const m of text.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, preamble(text, m.index));
+    for (const m of text.matchAll(BAREWORD_TOKEN_RE)) {
+      pushExtensionless(m[1], node.id, preamble(text, m.index + (m[0].length - m[1].length)));
+    }
     for (const a of node.actions || []) {
       const body = `${a.input || ''}`.slice(0, MAX_TEXT_SCAN);
       for (const m of body.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
-      for (const m of body.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, body);
+      for (const m of body.matchAll(PATHISH_TOKEN_RE)) pushExtensionless(m[0], node.id, preamble(body, m.index));
+      // An assistant CLAIM of a file lives in the action narration ("I added the A*
+      // implementation in solver/astar.py"), not in node.text or the touched-file set. Scan it for
+      // extension-bearing file tokens so a claimed-but-never-created file surfaces. Precision is
+      // anchored downstream by the same created/existsSync cross-check that gates every other ref:
+      // a narration mention of a file that DOES exist (heuristics.py) or WAS touched (grid.py) is
+      // dropped, and prose slash phrases with no extension ("flood/fill") never match FILE_TOKEN_RE.
+      if (a.narration && typeof a.narration === 'string') {
+        const narr = a.narration.slice(0, MAX_TEXT_SCAN);
+        for (const m of narr.matchAll(FILE_TOKEN_RE)) push(m[0], node.id);
+      }
       if (a.file && typeof a.file === 'string' &&
           (a.tool === 'Write' || a.tool === 'Edit' || a.tool === 'NotebookEdit')) {
         push(a.file, node.id);
@@ -309,6 +352,41 @@ function isRelativeOrLocalSpec(spec) {
   return REL_PREFIX_RE.test(spec) || spec.startsWith('/') || spec.startsWith('node:');
 }
 
+// Well-known JS/Python library stems that a dotted token like "cytoscape.js" or "whisper.py"
+// references as a LIBRARY, not as a project file. Used only when no manifest is present so a
+// dotted library mention is not mistaken for a missing project file.
+const WELL_KNOWN_LIBRARY_STEMS = new Set([
+  'cytoscape', 'd3', 'three', 'whisper', 'numpy', 'pandas', 'scipy', 'sklearn',
+  'tensorflow', 'torch', 'pytorch', 'keras', 'matplotlib', 'seaborn', 'react',
+  'vue', 'svelte', 'angular', 'jquery', 'lodash', 'underscore', 'moment', 'axios',
+  'express', 'flask', 'django', 'fastapi', 'requests', 'pillow', 'opencv', 'cv2',
+  'transformers', 'langchain', 'openai', 'anthropic', 'redux', 'webpack', 'rollup',
+  'vite', 'babel', 'eslint', 'prettier', 'jest', 'mocha', 'chai', 'pytest',
+  'bootstrap', 'tailwind', 'chartjs', 'plotly', 'leaflet', 'mapbox', 'socketio',
+]);
+
+// A single-segment dotted token like "cytoscape.js" or "pandas.py" is frequently a LIBRARY
+// reference, not a path to a missing project file. Suppress it when its bare stem matches a declared
+// manifest dependency (so "cytoscape.js" with cytoscape in package.json is a lib, not a missing file);
+// when no manifest exists, fall back to a curated well-known-library stem set. A token that carries a
+// path segment (a slash) or whose stem is not a known library still fires as a real missing file.
+function isDeclaredLibraryName(token, pkgNames, lockNames, pyNames) {
+  if (hasSlash(token)) return false;
+  const base = token.split('/').pop();
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0) return false;
+  const stem = base.slice(0, dot).toLowerCase();
+  if (!stem) return false;
+  const hasManifest = pkgNames.size > 0 || lockNames.size > 0 || pyNames.size > 0;
+  if (hasManifest) {
+    for (const name of pkgNames) if (packageRoot(name).toLowerCase() === stem) return true;
+    for (const name of lockNames) if (packageRoot(name).toLowerCase() === stem) return true;
+    if (pyNames.has(stem)) return true;
+    return false;
+  }
+  return WELL_KNOWN_LIBRARY_STEMS.has(stem);
+}
+
 export function detectHallucinations(tree, projectDir, opts = {}) {
   const hallucinations = [];
   if (!projectDir || !existsSync(projectDir)) {
@@ -324,6 +402,7 @@ export function detectHallucinations(tree, projectDir, opts = {}) {
   for (const ref of collectFileReferences(tree)) {
     if (created.has(ref.key)) continue;
     if (fileExists(projectDir, ref.token)) continue;
+    if (isDeclaredLibraryName(ref.token, pkgNames, lockNames, pyNames)) continue;
     hallucinations.push({
       category: 'hallucinated_file_or_path',
       reference: truncate(ref.token, EVIDENCE_CAP),

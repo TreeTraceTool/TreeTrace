@@ -137,6 +137,12 @@ export function classifyPrompts(sessions) {
         thinking: prompt.thinking || 0,
         rejections: prompt.rejections || [],
         chars: text.length,
+        // Carry the prior-assistant token snapshot so inferSignals can back-reference a
+        // surplus-removal imperative to a component the immediately-prior assistant turn added.
+        _priorTokens: prompt._priorTokens || null,
+        // Carry the structural-redirect flag so the lesson damp can withhold the
+        // generic user_rejected_action boilerplate on dense structural-decline turns.
+        structuralRedirect: prompt.structuralRedirect === true,
       };
       if (node.kind === KIND.ROOT) rootAssigned = true;
       nodes.push(node);
@@ -181,6 +187,12 @@ function isRerunOf(a, b) {
 
 function classifyOne(text, prompt, rootAssigned) {
   if (!rootAssigned) return KIND.ROOT;
+  // A turn that STRUCTURALLY contradicts the immediately-prior assistant action (parse.js
+  // set prompt.structuralRedirect: a back-reference to a token that action touched + a contrast/
+  // negation/reversal cue) IS a correction by construction. Route it to kind:correction so the
+  // analysis loop's chain/lesson/failure pipeline fires for fresh-form redirects ("you solved the
+  // wrong problem, I cared about latency not throughput"; "nix the trie") that no opener matches.
+  if (prompt && prompt.structuralRedirect) return KIND.CORRECTION;
   if (CORRECTION_STRONG_OPENERS.test(text) || CORRECTION_ANYWHERE.test(text)) return KIND.CORRECTION;
   if (SCOPE_ANYWHERE.test(text)) return KIND.SCOPE;
   if (CHECKPOINT_ANYWHERE.test(text)) return KIND.CHECKPOINT;
