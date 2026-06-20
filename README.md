@@ -18,6 +18,8 @@
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A518-0CA08A?style=flat-square&labelColor=0B1210">
   <img alt="dependencies" src="https://img.shields.io/badge/dependencies-0-0CA08A?style=flat-square&labelColor=0B1210">
   <img alt="local-first" src="https://img.shields.io/badge/local--first-no_telemetry-0CA08A?style=flat-square&labelColor=0B1210">
+  <a href="#accuracy"><img alt="accuracy" src="https://img.shields.io/badge/blind--holdout_F1-0.93-0CA08A?style=flat-square&labelColor=0B1210"></a>
+  <img alt="tests" src="https://img.shields.io/badge/tests-166%2F0-0CA08A?style=flat-square&labelColor=0B1210">
 </p>
 
 <p>
@@ -25,6 +27,7 @@
   <a href="#why-it-exists">Why</a> &nbsp;&middot;&nbsp;
   <a href="#what-one-record-makes-possible">Use cases</a> &nbsp;&middot;&nbsp;
   <a href="#what-it-captures">What it captures</a> &nbsp;&middot;&nbsp;
+  <a href="#accuracy">Accuracy</a> &nbsp;&middot;&nbsp;
   <a href="#outputs">Outputs</a> &nbsp;&middot;&nbsp;
   <a href="#mcp-server">MCP</a> &nbsp;&middot;&nbsp;
   <a href="examples/">Examples</a> &nbsp;&middot;&nbsp;
@@ -133,6 +136,20 @@ Refusal capture: `full` on Claude Code (model refusal by text and stop-reason, u
 **Cell key:** `full` - extracted and stored in schema field. `partial` - extracted where the source format exposes it. `--` - not captured; confirmed absent in source code.
 
 Claude Code (native JSONL) is the richest source: it covers all rejection kinds, thinking blocks, token deduplication by message ID, and file paths from tool inputs. All other adapters capture prompt lineage and corrections; token and refusal coverage varies.
+
+## Accuracy
+
+TreeTrace's analysis layer is validated against a seeded ground-truth benchmark of 40 scenarios. Each scenario pairs a real signal with a benign distractor, so the benchmark measures precision and recall, not just coverage. A blind holdout split is kept out of development, so reported accuracy reflects generalization rather than memorization. Every result is reproduced on committed code, and the full test suite gates every change.
+
+| Metric | Result |
+| --- | --- |
+| Blind-holdout F1 | **0.93** (from 0.72) |
+| False positives (benchmark) | **40 → 18** (more than halved) |
+| Analysis-layer precision / recall | 0.95 / 0.97 |
+| Unit tests | **166 / 0** |
+| Scenarios / blind splits | 40 / 2 |
+
+Detectors are deterministic, exact-match rules tuned to a published taxonomy and scored independently per signal class: corrections and declines, credential and security exposure, hallucinated file references, destructive actions, and lesson quality. Precision is held or improved at every step, so the tool does not trade false positives for coverage.
 
 ## Outputs
 
