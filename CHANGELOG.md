@@ -2,6 +2,12 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.10.1 - 2026-06-20
+
+### Changed
+
+- Relicensed to the Apache License 2.0 (SPDX: `Apache-2.0`). TreeTrace is once again free and open source for any use, including commercial, with an explicit patent grant. This reverses the 0.9.0-0.10.0 PolyForm Noncommercial terms; the change applies to this version onward. `package.json` declares `Apache-2.0`, and `LICENSE` and `NOTICE` ship in the published package.
+
 ## 0.10.0 - 2026-06-19
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Prompt-lineage visibility for coding & CLI agent sessions. Turns a raw session into a structured, local record of every correction, refusal, token, and tool - for audit, training data, and token efficiency.",
   "keywords": [
     "claude-code",
@@ -20,7 +20,7 @@
     "refusals",
     "token-usage"
   ],
-  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
+  "license": "Apache-2.0",
   "author": "Zion Boggan",
   "homepage": "https://treetrace.dev",
   "repository": {

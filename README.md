@@ -14,7 +14,7 @@
 <p>
   <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=0CA08A&labelColor=0B1210"></a>
   <a href="https://github.com/TreeTraceTool/TreeTrace/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/TreeTraceTool/TreeTrace/ci.yml?branch=main&style=flat-square&label=ci&color=0CA08A&labelColor=0B1210"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-0CA08A?style=flat-square&labelColor=0B1210"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-0CA08A?style=flat-square&labelColor=0B1210"></a>
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A518-0CA08A?style=flat-square&labelColor=0B1210">
   <img alt="dependencies" src="https://img.shields.io/badge/dependencies-0-0CA08A?style=flat-square&labelColor=0B1210">
   <img alt="local-first" src="https://img.shields.io/badge/local--first-no_telemetry-0CA08A?style=flat-square&labelColor=0B1210">
@@ -348,12 +348,8 @@ See [examples/](examples/) for generated artifacts produced by running the CLI w
 
 ## License
 
-[PolyForm Noncommercial License 1.0.0](LICENSE). Copyright 2026 Zion Boggan.
+[Apache License 2.0](LICENSE). Copyright 2026 Zion Boggan.
 
-TreeTrace is **free for any noncommercial purpose** - personal projects, research, education, nonprofits, and government use. You may use, modify, and share it under those terms, with an included patent grant.
+TreeTrace is **free and open source** for any use, including commercial. Use it, modify it, ship it inside your own products, run it at work. The Apache 2.0 license includes an explicit patent grant.
 
-**Commercial or for-profit use requires a separate license.** If you want to use TreeTrace in or for a business, ship it in a paid product, or run it for commercial advantage, contact me for a commercial license: zionboggan@gmail.com.
-
-source-available - PolyForm Noncommercial 1.0.0 - © 2026 Zion Boggan
-
-See [LICENSE](LICENSE) for the full terms.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the full terms.
