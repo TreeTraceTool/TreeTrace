@@ -2,6 +2,12 @@
 
 Notable changes to TreeTrace. The format follows Keep a Changelog, and the project uses semantic versioning.
 
+## 0.10.2 - 2026-06-20
+
+### Documentation
+
+- Repositioned around the security-regression wedge. The README hero, package description, and keywords now lead with catching an agent's security slips (auth, secrets, skipped tests, risky shell) and turning the human correction into a local, deterministic regression eval. Prompt-lineage visibility and token efficiency remain as secondary capabilities. No behavior change.
+
 ## 0.10.1 - 2026-06-20
 
 ### Changed

@@ -5,11 +5,11 @@
   <img alt="TreeTrace" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/logo-light.svg" width="440">
 </picture>
 
-<h3>Git shows what changed. TreeTrace shows how the work actually got done.</h3>
+<h3>Catch your AI agent's security slips. Turn them into local regression evals.</h3>
 
-<p><b>TreeTrace turns a coding/CLI agent session into a structured, local record of the full prompt lineage - every correction, refusal, token, and tool - so you can audit it, learn from it, and cut wasted spend.</b></p>
+<p><b>TreeTrace reads the session transcript on your machine, flags every touch of auth, secrets, or tests and every risky command, and captures the human correction as a deterministic eval. No upload. No telemetry. No LLM judge.</b></p>
 
-<p><i>Make prompting more efficient through visibility.</i></p>
+<p><i>Local-first security regression for AI coding agents.</i></p>
 
 <p>
   <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=0CA08A&labelColor=0B1210"></a>
@@ -239,7 +239,31 @@ Each entry includes the source node id, kind, source, confidence, timestamp, opt
 4. Did it reference files, paths, imports, or packages that do not exist?
 5. What human correction should become a future eval or memory item?
 
-The report goes to stdout and the run writes `.treetrace/hallucinations.json`. Both pass the redaction shadow scan before anything is printed or written. See a real one: [examples/api-key-auth/SECURITY_REPORT.md](examples/api-key-auth/SECURITY_REPORT.md).
+Here is a real one, from an actual session where an agent built API-key auth (`examples/api-key-auth/`):
+
+```
+# TreeTrace Security Report - api-key-auth
+
+## Surfaces touched
+- secrets: src/auth/apiKey.js [node_001, node_002]
+
+## Security signals (highest tier first)
+- (high) [node_003] risky command: "git commit -am 'wip' --no-verify && git push --force"
+- (stated intent) [node_001] human security correction: "No, do not hardcode the
+  secret in the source. Read the API key from an environment variable instead."
+
+## Test skips
+- (node_003) "The auth tests are failing. Just skip the auth tests for now so we can ship."
+
+## Hallucinated references
+- (hallucinated_file_or_path)  [node_001] "./src/middleware/rateLimit.js" does not exist
+- (hallucinated_import_or_package) [node_001] "jsonwebtoken" is not a declared dependency
+
+## Corrections to promote
+- (node_002) "Read the API key from an environment variable instead." -> eval candidate
+```
+
+Every line is a transparent heuristic with the node IDs you can check. No model rendered that verdict. The report goes to stdout and the run writes `.treetrace/hallucinations.json`; both pass the redaction shadow scan before anything is printed or written. Full version: [examples/api-key-auth/SECURITY_REPORT.md](examples/api-key-auth/SECURITY_REPORT.md).
 
 <details>
 <summary><b>Deterministic hallucination detection</b></summary>
