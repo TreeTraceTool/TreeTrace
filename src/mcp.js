@@ -1,6 +1,6 @@
 import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
-import { parseArgs, loadRedactedTree, detectProjectName, assertClean } from './cli.js';
+import { parseArgs, loadRedactedTree, detectProjectName, assertClean, sourceTypeFor } from './cli.js';
 import { renderHandoff } from './handoff.js';
 import { renderLessonsMarkdown, analyzeTree, renderRejectionsJson } from './analyze.js';
 import { renderSecurityReport } from './security-report.js';
@@ -65,8 +65,18 @@ export async function startMcpServer({ argv, version }, io = {}) {
     if (cache) return cache;
     if (!inFlight) {
       inFlight = (async () => {
-        const { tree, decisions } = await loadRedactedTree(opts, projectDir, projectName, () => {}, { forceAuto: true });
-        cache = { tree, decisions, renderOpts: { projectName, version, projectDir, generatedAt: new Date().toISOString() } };
+        const { tree, decisions, sourceTool } = await loadRedactedTree(opts, projectDir, projectName, () => {}, { forceAuto: true });
+        cache = {
+          tree,
+          decisions,
+          renderOpts: {
+            projectName,
+            version,
+            projectDir,
+            generatedAt: new Date().toISOString(),
+            sourceType: sourceTypeFor(sourceTool),
+          },
+        };
         return cache;
       })().finally(() => {
         inFlight = null;

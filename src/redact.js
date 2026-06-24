@@ -143,7 +143,14 @@ export function scanText(text) {
     if (HEX_RE.test(tok) || VERSION_LIKE_RE.test(tok)) continue;
     const classes = (/[A-Z]/.test(tok) ? 1 : 0) + (/[a-z]/.test(tok) ? 1 : 0) + (/[0-9]/.test(tok) ? 1 : 0);
     if (classes < 2) continue;
-    if (shannonEntropy(tok) < 4.4) continue;
+    const entropy = shannonEntropy(tok);
+    if (entropy < 4.4) {
+      if (!looksLikeLowercaseDigitSecret(tok, entropy)) continue;
+      const start = m.index;
+      if (seenSpans.some(([s, e]) => start >= s && start < e)) continue;
+      findings.push({ ruleId: 'lowercase-digit-token', severity: 'medium', match: tok, index: start });
+      continue;
+    }
     const start = m.index;
     if (seenSpans.some(([s, e]) => start >= s && start < e)) continue;
     findings.push({ ruleId: 'high-entropy-token', severity: 'medium', match: tok, index: start });
@@ -151,6 +158,14 @@ export function scanText(text) {
 
   findings.push(...scanJoinedProviderTokens(scanInput, findings, text));
   return findings;
+}
+
+function looksLikeLowercaseDigitSecret(tok, entropy) {
+  if (tok.length < 32) return false;
+  if (!/^[a-z0-9_-]+$/.test(tok)) return false;
+  if (!/[a-z]/.test(tok) || !/[0-9]/.test(tok)) return false;
+  if (VERSION_LIKE_RE.test(tok)) return false;
+  return entropy >= 3.0;
 }
 
 function scanJoinedProviderTokens(scanInput, existing, original = scanInput) {
