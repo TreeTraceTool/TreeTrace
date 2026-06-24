@@ -191,6 +191,17 @@ test('redaction: high-entropy lowercase-and-digit token (no uppercase) is caught
   assert.ok(hits.includes('high-entropy-token'), `high-entropy token missed (got ${hits})`);
 });
 
+test('redaction: structured lowercase-and-digit token is caught fail-closed', async () => {
+  const token = 'lowercase9lowercase9lowercase9lowercase9';
+  const findings = scanText(`session token ${token}`).filter((f) => f.severity !== 'soft');
+  assert.ok(findings.some((f) => f.ruleId === 'lowercase-digit-token'), `lowercase-digit token missed: ${JSON.stringify(findings)}`);
+
+  const { decisions } = await resolveFindings(findings, {}, { interactive: false, autoRedact: true });
+  const cleaned = applyDecisions(`session token ${token}`, findings, decisions);
+  assert.ok(!cleaned.includes(token), 'structured lowercase token leaked after redaction');
+  assert.equal(shadowScan(cleaned, {}).length, 0, 'shadow scan should be clean after lowercase-digit redaction');
+});
+
 test('redaction: uuids and long lowercase identifiers are not flagged as high-entropy', () => {
   for (const benign of [
     '8400e29b-1d4f-4a6c-9b2e-7f3a1c5d8e90',
@@ -736,6 +747,27 @@ test('cli: a copilot import records a per-adapter sourceType, not claude-code-js
   }
 });
 
+test('cli: mixed imports record mixed sourceType instead of falling back to claude', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'treetrace-mixed-src-'));
+  const plain = join(dir, 'plain.txt');
+  const chatgpt = join(dir, 'chatgpt.json');
+  writeFileSync(plain, 'User: build a CLI\nAssistant: ok\n');
+  writeFileSync(chatgpt, JSON.stringify([{
+    title: 'demo',
+    mapping: {
+      r: { message: null, parent: null, children: ['u'] },
+      u: { message: { author: { role: 'user' }, content: { parts: ['build a dashboard'] }, create_time: 1.0 }, parent: 'r', children: [] },
+    },
+  }]));
+  try {
+    await main(['--file', plain, chatgpt, '--dir', dir, '--redact-auto', '--quiet']);
+    const tree = JSON.parse(readFileSync(join(dir, '.treetrace/tree.json'), 'utf8'));
+    assert.equal(tree.project.sourceType, 'mixed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('cli: creates the output directory and .treetrace subdirectory when missing', async () => {
   const base = mkdtempSync(join(tmpdir(), 'treetrace-'));
   const dir = join(base, 'does', 'not', 'exist', 'yet');
@@ -1097,6 +1129,35 @@ test('mcp: initialize, tools/list, and tools/call return well-formed JSON-RPC', 
 
     const bad = responses.find((r) => r.id === 99);
     assert.ok(bad.error && bad.error.code === -32602, 'unknown tool should return a JSON-RPC error');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('mcp: tree tool reports the imported source type', async () => {
+  const dir = tempProject();
+  const transcript = join(dir, 'plain.txt');
+  writeFileSync(transcript, 'User: build a CLI\nAssistant: ok\n');
+  const bin = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'treetrace.js');
+  try {
+    const responses = await new Promise((resolveP, rejectP) => {
+      const child = spawn('node', [bin, 'mcp', '--from', 'transcript', '--file', transcript, '--dir', dir], {
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      let buf = '';
+      child.stdout.on('data', (d) => { buf += d; });
+      child.on('error', rejectP);
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tree', arguments: {} } }) + '\n');
+      setTimeout(() => {
+        child.stdin.end();
+        child.kill();
+        resolveP(buf.split('\n').filter(Boolean).map((l) => JSON.parse(l)));
+      }, 2000);
+    });
+
+    const treeResponse = responses.find((r) => r.id === 1);
+    const tree = JSON.parse(treeResponse.result.content[0].text);
+    assert.equal(tree.project.sourceType, 'transcript');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -386,9 +386,10 @@ const SOURCE_TYPE_BY_TOOL = {
   cursor: 'cursor-export',
   grok: 'grok-cli',
   transcript: 'transcript',
+  mixed: 'mixed',
 };
 
-function sourceTypeFor(tool) {
+export function sourceTypeFor(tool) {
   return SOURCE_TYPE_BY_TOOL[tool] || 'claude-code-jsonl';
 }
 
