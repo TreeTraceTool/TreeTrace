@@ -21,3 +21,5 @@ docs/dogfooding-case-study-findings.md
 docs/hero-mocks/
 docs/sample-prompt-tree.*
 docs/sample-trimmed-output/
+
+.serena/
