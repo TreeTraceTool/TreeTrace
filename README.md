@@ -12,14 +12,14 @@
 <p><i>Local-first security regression for AI coding agents.</i></p>
 
 <p>
-  <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=0CA08A&labelColor=0B1210"></a>
-  <a href="https://github.com/TreeTraceTool/TreeTrace/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/TreeTraceTool/TreeTrace/ci.yml?branch=main&style=flat-square&label=ci&color=0CA08A&labelColor=0B1210"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-0CA08A?style=flat-square&labelColor=0B1210"></a>
-  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A518-0CA08A?style=flat-square&labelColor=0B1210">
-  <img alt="dependencies" src="https://img.shields.io/badge/dependencies-0-0CA08A?style=flat-square&labelColor=0B1210">
-  <img alt="local-first" src="https://img.shields.io/badge/local--first-no_telemetry-0CA08A?style=flat-square&labelColor=0B1210">
-  <a href="#accuracy"><img alt="accuracy" src="https://img.shields.io/badge/blind--holdout_F1-0.93-0CA08A?style=flat-square&labelColor=0B1210"></a>
-  <img alt="tests" src="https://img.shields.io/badge/tests-166%2F0-0CA08A?style=flat-square&labelColor=0B1210">
+  <a href="https://www.npmjs.com/package/treetrace"><img alt="npm" src="https://img.shields.io/npm/v/treetrace?style=flat-square&label=npm&color=2E5BFF&labelColor=0B0C0E"></a>
+  <a href="https://github.com/TreeTraceTool/TreeTrace/actions/workflows/ci.yml"><img alt="ci" src="https://img.shields.io/github/actions/workflow/status/TreeTraceTool/TreeTrace/ci.yml?branch=main&style=flat-square&label=ci&color=2E5BFF&labelColor=0B0C0E"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/license-Apache%202.0-2E5BFF?style=flat-square&labelColor=0B0C0E"></a>
+  <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A518-2E5BFF?style=flat-square&labelColor=0B0C0E">
+  <img alt="dependencies" src="https://img.shields.io/badge/dependencies-0-2E5BFF?style=flat-square&labelColor=0B0C0E">
+  <img alt="local-first" src="https://img.shields.io/badge/local--first-no_telemetry-2E5BFF?style=flat-square&labelColor=0B0C0E">
+  <a href="#accuracy"><img alt="accuracy" src="https://img.shields.io/badge/blind--holdout_F1-0.93-2E5BFF?style=flat-square&labelColor=0B0C0E"></a>
+  <img alt="tests" src="https://img.shields.io/badge/tests-166%2F0-2E5BFF?style=flat-square&labelColor=0B0C0E">
 </p>
 
 <p>
@@ -36,9 +36,7 @@
 
 <p align="center"><a href="https://treetrace.dev/assets/treetrace-v43.mp4"><img src="https://treetrace.dev/assets/treetrace-v43-poster.jpg" alt="Watch the TreeTrace demo video" width="760"></a></p>
 
-<picture>
-  <img alt="TreeTrace turning a session into a prompt tree, lessons, and redacted output" src="https://raw.githubusercontent.com/TreeTraceTool/TreeTrace/main/.github/assets/demo.gif" width="760">
-</picture>
+<!-- demo.gif intentionally omitted: the in-terminal walkthrough GIF is being regenerated from the recolored promo video. Re-add it here once the cobalt-branded capture is ready. -->
 
 </div>
 

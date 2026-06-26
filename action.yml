@@ -3,7 +3,7 @@ description: 'Prompt-lineage visibility for coding & CLI agent sessions. Generat
 author: 'Zion Boggan'
 branding:
   icon: 'git-branch'
-  color: 'green'
+  color: 'blue'
 
 inputs:
   source:
