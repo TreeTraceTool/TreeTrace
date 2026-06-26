@@ -34,9 +34,9 @@
   <a href="https://treetrace.dev">treetrace.dev</a>
 </p>
 
-<p align="center"><a href="https://treetrace.dev/assets/treetrace-v43.mp4"><img src="https://treetrace.dev/assets/treetrace-v43-poster.jpg" alt="Watch the TreeTrace demo video" width="760"></a></p>
+<p align="center"><a href="https://treetrace.dev/"><img src=".github/assets/demo.gif" alt="TreeTrace — catch your AI coding agent's security slips, locally" width="760"></a></p>
 
-<!-- demo.gif intentionally omitted: the in-terminal walkthrough GIF is being regenerated from the recolored promo video. Re-add it here once the cobalt-branded capture is ready. -->
+<p align="center"><a href="https://treetrace.dev/"><b>&#9654; Watch the 80-second tour at treetrace.dev</b></a></p>
 
 </div>
 
