@@ -1,6 +1,6 @@
 {
   "name": "treetrace",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "description": "Catch every time your AI coding agent touches auth, secrets, or skips a test, then turn the correction you made into a local regression eval. Local-first, deterministic, no LLM judge.",
   "keywords": [
     "security",
