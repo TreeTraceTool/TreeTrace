@@ -36,9 +36,15 @@
 
 <p align="center"><a href="https://treetrace.dev/"><img src=".github/assets/demo.gif" alt="TreeTrace — catch your AI coding agent's security slips, locally" width="760"></a></p>
 
-<p align="center"><a href="https://treetrace.dev/"><b>&#9654; Watch the 80-second tour at treetrace.dev</b></a></p>
+<p align="center">
+  <video src="https://github.com/TreeTraceTool/TreeTrace/releases/download/v0.10.4/treetrace_promo_v6_subbed.mp4" controls muted width="760"></video>
+</p>
+
+<p align="center"><a href="https://treetrace.dev/"><b>&#9654; Full 80-second tour, captioned &mdash; also playable at treetrace.dev</b></a></p>
 
 </div>
+
+> **Not just for coding.** TreeTrace works with any AI agent or chat session &mdash; Claude Code, Cursor, Codex, Copilot, Gemini, Grok &mdash; and even a plain `User:` / `Assistant:` chat transcript via `--from transcript`. A regular ChatGPT, Claude, or Gemini conversation works the same way. No coding required.
 
 ## Install
 
