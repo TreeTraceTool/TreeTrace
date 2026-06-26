@@ -36,11 +36,7 @@
 
 <p align="center"><a href="https://treetrace.dev/"><img src=".github/assets/demo.gif" alt="TreeTrace — catch your AI coding agent's security slips, locally" width="760"></a></p>
 
-<p align="center">
-  <video src="https://github.com/TreeTraceTool/TreeTrace/releases/download/v0.10.4/treetrace_promo_v6_subbed.mp4" controls muted width="760"></video>
-</p>
-
-<p align="center"><a href="https://treetrace.dev/"><b>&#9654; Full 80-second tour, captioned &mdash; also playable at treetrace.dev</b></a></p>
+<p align="center"><b>&#9654; <a href="https://github.com/TreeTraceTool/TreeTrace/releases/download/v0.10.4/treetrace_promo_v6_subbed.mp4">Watch the full 80-second tour (captioned)</a></b> &nbsp;&middot;&nbsp; <a href="https://treetrace.dev/">play it on treetrace.dev</a></p>
 
 </div>
 
