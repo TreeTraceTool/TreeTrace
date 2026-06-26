@@ -34,13 +34,13 @@
   <a href="https://treetrace.dev">treetrace.dev</a>
 </p>
 
-<p align="center"><a href="https://treetrace.dev/"><img src=".github/assets/demo.gif" alt="TreeTrace — catch your AI coding agent's security slips, locally" width="760"></a></p>
+<p align="center"><a href="https://treetrace.dev/"><img src=".github/assets/demo.gif" alt="TreeTrace 80-second tour: catch your AI agent's security slips, locally" width="760"></a></p>
 
-<p align="center"><b>&#9654; <a href="https://github.com/TreeTraceTool/TreeTrace/releases/download/v0.10.4/treetrace_promo_v6_subbed.mp4">Watch the full 80-second tour (captioned)</a></b> &nbsp;&middot;&nbsp; <a href="https://treetrace.dev/">play it on treetrace.dev</a></p>
+<p align="center"><b>&#9654; <a href="https://treetrace.dev/">Watch it with sound on treetrace.dev</a></b></p>
 
 </div>
 
-> **Not just for coding.** TreeTrace works with any AI agent or chat session &mdash; Claude Code, Cursor, Codex, Copilot, Gemini, Grok &mdash; and even a plain `User:` / `Assistant:` chat transcript via `--from transcript`. A regular ChatGPT, Claude, or Gemini conversation works the same way. No coding required.
+> **Not just for coding.** TreeTrace works with any AI agent or CLI session. Claude Code, Cursor, Codex, Copilot, Gemini, Grok, or even a plain `User:` / `Assistant:` chat transcript via `--from transcript`. A regular ChatGPT, Claude, or Gemini conversation works the same way, no coding required.
 
 ## Install
 
